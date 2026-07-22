@@ -828,15 +828,9 @@ btnSync.addEventListener('click', async () => {
     }
     updateLibCount();
 
-    // Auto-copy Confluence URL silently
+    // Auto-copy Confluence URL + show inline (no modal popup)
     navigator.clipboard.writeText(data.url).catch(() => {});
-    // Show sync result modal with embed instructions
-    showSyncResult({
-      url:      data.url,
-      pageName: pickedPageMeta.pageName || cfPageId.value,
-      pageId:   cfPageId.value.trim(),
-      filename: fname
-    });
+    showToast(`✅ Synced! URL copied — click "Open ↗" to embed`);
 
     setTimeout(() => setSyncStatus('', ''), 4000);
 
@@ -1260,49 +1254,60 @@ btnLibNew.addEventListener('click', () => {
 });
 libSearch.addEventListener('input', renderLibrary);
 
-// Decode base64url (Node Buffer.toString('base64url') output) back to UTF-8 string
-function decodeBase64Url(b64url) {
-  const b64     = b64url.replace(/-/g, '+').replace(/_/g, '/');
-  const padded  = b64 + '='.repeat((4 - b64.length % 4) % 4);
-  return decodeURIComponent(escape(atob(padded)));
+// Extract page ID from a Confluence page URL or plain ID string
+function extractPageId(text) {
+  if (!text) return null;
+  const t = text.trim();
+  // ?pageId=123456 or &pageId=123456
+  const m1 = t.match(/[?&]pageId=(\d+)/);
+  if (m1) return m1[1];
+  // /pages/123456/... or /pages/123456
+  const m2 = t.match(/\/pages\/(\d+)/);
+  if (m2) return m2[1];
+  // plain numeric ID
+  if (/^\d+$/.test(t)) return t;
+  return null;
 }
+
+// ─── Page ID field: accept pasted Confluence URL → auto-extract ID ─────────────
+cfPageId.addEventListener('paste', e => {
+  const text = (e.clipboardData || window.clipboardData).getData('text');
+  const id = extractPageId(text);
+  if (id && id !== text.trim()) {
+    e.preventDefault();
+    cfPageId.value = id;
+    saveCreds();
+    updateSyncBtn();
+    updateProcessBtn();
+    showToast(`Page ID: ${id}`);
+  }
+});
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 (function init() {
   loadCreds();
   const p = new URLSearchParams(window.location.search);
 
-  // Deep-link from Confluence "Edit in Kroki" link:
-  // ?code=BASE64URL&type=mermaid&page=PAGE_ID
-  const deepCode = p.get('code');
-  const deepPage = p.get('page');
-  if (deepCode && deepPage) {
-    try {
-      const code = decodeBase64Url(deepCode);
-      const type = p.get('type') || 'mermaid';
-      editor.value      = code;
-      diagramType.value = type;
-      cfPageId.value    = deepPage;
-      // Set diagram name from type for easy identification
-      diagramName.value = `${type} diagram`;
-      // Clean URL so refresh doesn't reload the same params
-      history.replaceState({}, '', location.pathname);
-      // Update creds/button state then render
-      if (HAS_API && credFields) credFields.style.display = 'none';
-      updateSyncBtn();
-      updateProcessBtn();
-      scheduleRender();
-      showToast('Loaded from Confluence — edit and Sync to update the page');
-      return; // skip library restore below
-    } catch (e) {
-      console.warn('Deep link decode failed:', e);
-    }
+  // Simple pre-select from Confluence "Edit in Kroki ↗" link: ?type=mermaid&page=PAGE_ID
+  // No code in URL — user pastes diagram code manually.
+  const paramType = p.get('type');
+  const paramPage = p.get('page');
+  if (paramType || paramPage) {
+    if (paramType) diagramType.value = paramType;
+    if (paramPage) cfPageId.value    = paramPage;
+    history.replaceState({}, '', location.pathname);
+    if (HAS_API && credFields) credFields.style.display = 'none';
+    updateSyncBtn();
+    updateProcessBtn();
+    if (paramType) showToast(`${paramType} selected — paste your diagram code here`);
+    scheduleRender();
+    return;
   }
 
   // Legacy params (bookmarks / manual config)
   if (p.get('cfUrl'))    cfUrl.value      = p.get('cfUrl');
   if (p.get('cfEmail'))  cfEmail.value    = p.get('cfEmail');
-  if (p.get('cfPageId')) cfPageId.value   = p.get('cfPageId');
+  if (p.get('cfPageId') || p.get('page')) cfPageId.value = p.get('cfPageId') || p.get('page');
   if (p.get('cfFname'))  cfFileName.value = p.get('cfFname');
 
   // Hide credential fields when server handles them

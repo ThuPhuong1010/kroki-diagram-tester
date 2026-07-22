@@ -113,14 +113,10 @@ async function uploadAttachment(cfUrl, pageId, filename, pngBuf, auth) {
   }
 }
 
-// Encode diagram code as base64url for embedding in a URL
-function encodeCodeForUrl(code) {
-  return Buffer.from(code, 'utf-8').toString('base64url');
-}
-
 // Insert rendered image + "Edit in Kroki" link after each code block.
 // Idempotent: uses HTML comment markers keyed by filename (which contains code hash).
 // If code changes → filename changes → old marker replaced automatically.
+// Link format: ?type=mermaid&page=PAGE_ID — user opens tool and pastes code manually.
 function patchPageBody(html, diagrams, pageId, toolUrl) {
   let body = html;
   let changed = false;
@@ -132,7 +128,7 @@ function patchPageBody(html, diagrams, pageId, toolUrl) {
     const insertAt = codePos + d.fullMatch.length;
 
     const genStart  = `<!-- kroki:${d.filename} -->`;
-    const editHref  = `${toolUrl}?code=${encodeCodeForUrl(d.code)}&amp;type=${d.type}&amp;page=${pageId}`;
+    const editHref  = `${toolUrl}?type=${d.type}&amp;page=${pageId}`;
     const newBlock  =
       `\n${genStart}` +
       `\n<ac:image ac:align="center"><ri:attachment ri:filename="${d.filename}"/></ac:image>` +
