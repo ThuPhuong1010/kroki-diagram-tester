@@ -1024,7 +1024,9 @@ function closeLibrary() { libDrawer.classList.remove('open'); libBackdrop.classL
 function renderLibrary() {
   const q = (libSearch?.value || '').toLowerCase();
   const items = library.all.filter(d =>
-    !q || d.name.toLowerCase().includes(q) || (d.pageName||'').toLowerCase().includes(q)
+    !q || d.name.toLowerCase().includes(q) ||
+    (d.pageName||'').toLowerCase().includes(q) ||
+    (d.filename||'').toLowerCase().includes(q)
   );
   updateLibCount();
   if (!items.length) {
@@ -1057,6 +1059,7 @@ function renderLibrary() {
       <div class="lib-card-meta">
         <span class="lib-type">${d.type}</span>
         ${multiPages ? '' : (d.pageName ? `<span class="lib-page">📄 ${escHtml(d.pageName)}</span>` : '<span class="lib-page lib-no-page">no page</span>')}
+        ${d.filename && d.filename !== 'diagram.png' ? `<span class="lib-filename" title="filename on Confluence">🖼 ${escHtml(d.filename)}</span>` : ''}
       </div>
       ${pagesHtml}
       <div class="lib-card-status">${badge}${chk}${d.lastSynced?`<span class="lib-time">${fmtDate(d.lastSynced)}</span>`:''}</div>
@@ -1173,10 +1176,32 @@ btnSaveDiagram.addEventListener('click', () => {
   updateLibCount();
 });
 
-// Rename when user changes the name field
+// Slugify name → safe filename (e.g. "Login Flow" → "login-flow.png")
+function slugify(name) {
+  return name.trim()
+    .toLowerCase()
+    .replace(/[àáảãạăằắẳẵặâầấẩẫậ]/g, 'a')
+    .replace(/[èéẻẽẹêềếểễệ]/g, 'e')
+    .replace(/[ìíỉĩị]/g, 'i')
+    .replace(/[òóỏõọôồốổỗộơờớởỡợ]/g, 'o')
+    .replace(/[ùúủũụưừứửữự]/g, 'u')
+    .replace(/[ỳýỷỹỵ]/g, 'y')
+    .replace(/đ/g, 'd')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .substring(0, 60) || 'diagram';
+}
+
+// Rename when user changes the name field + auto-update filename if still default
 diagramName.addEventListener('change', () => {
   const name = diagramName.value.trim();
-  if (name && library.currentId) library.rename(library.currentId, name);
+  if (!name) return;
+  if (library.currentId) library.rename(library.currentId, name);
+  // Auto-set filename only if still using "diagram.png" default
+  if (cfFileName.value === 'diagram.png' || cfFileName.value === '') {
+    cfFileName.value = slugify(name) + '.png';
+    saveCreds();
+  }
 });
 
 // Library drawer events

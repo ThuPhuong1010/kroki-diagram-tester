@@ -1038,3 +1038,12 @@ html, body {
   max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .lib-page-pill::before { content: '📄 '; margin-right: 2px; }
+
+/* Library card filename tag */
+.lib-filename {
+  font-size: 10.5px; color: var(--text-secondary);
+  background: var(--bg-active); border: 1px solid var(--border);
+  border-radius: 3px; padding: 1px 5px;
+  font-family: var(--font-mono, monospace);
+  max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
