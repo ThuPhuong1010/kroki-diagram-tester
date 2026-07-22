@@ -1326,7 +1326,7 @@ cfPageId.addEventListener('input', () => {
       const tpl = TEMPLATES[key] || TEMPLATES[paramTemplate];
       if (tpl) { editor.value = tpl.code.trimStart(); if (!paramType) diagramType.value = tpl.type; }
     }
-    history.replaceState({}, '', location.pathname);
+    // Keep URL params so the link stays bookmarkable and shareable
     if (HAS_API && credFields) credFields.style.display = 'none';
     updateSyncBtn();
     updateProcessBtn();
