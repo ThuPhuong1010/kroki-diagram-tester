@@ -400,23 +400,24 @@ html, body {
   padding: 24px;
   transform-origin: center center;
   transition: transform 0.2s ease;
+  width: 100%;
+  min-height: 100%;
+  display: none;
+  align-items: center;
+  justify-content: center;
 }
-.preview-content.visible { display: block; }
+.preview-content.visible {
+  display: flex;
+}
 
-.preview-content img,
-.preview-content svg {
+.preview-content img {
   max-width: 100%;
   height: auto;
   display: block;
   border-radius: var(--radius-sm);
-  filter: drop-shadow(0 4px 20px rgba(0,0,0,0.4));
-}
-
-/* SVG bg fix for dark mode */
-.preview-content svg {
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
   background: white;
-  padding: 16px;
-  border-radius: var(--radius);
+  padding: 20px;
 }
 
 /* ===== OUTPUT BAR ===== */

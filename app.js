@@ -450,42 +450,23 @@ async function renderDiagram() {
 
   const type   = diagramType.value;
   const format = outputFormat.value;
-  const url    = buildKrokiUrl(code, type, format);
+  const url    = buildDiagramUrl(code, type, format);
 
   showState('loading');
   setStatus('loading', 'Rendering...');
   state.isRendering = true;
 
-  try {
-    const res = await fetch(url);
+  // Use an Image object to test if the URL loads successfully
+  // then display it — works for both SVG and PNG without fetch/CORS issues
+  const img = new Image();
 
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(errText || `HTTP ${res.status}`);
-    }
-
-    const contentType = res.headers.get('content-type') || '';
-    const blob = await res.blob();
-    const objectUrl = URL.createObjectURL(blob);
-
+  img.onload = () => {
     previewContent.innerHTML = '';
-
-    if (contentType.includes('svg') || format === 'svg') {
-      // Inline SVG for zoom support
-      const svgText = await blob.text();
-      previewContent.innerHTML = svgText;
-      const svg = previewContent.querySelector('svg');
-      if (svg) {
-        svg.style.maxWidth = '100%';
-        svg.removeAttribute('width');
-        svg.removeAttribute('height');
-      }
-    } else {
-      const img = document.createElement('img');
-      img.src = objectUrl;
-      img.alt = 'Diagram';
-      previewContent.appendChild(img);
-    }
+    img.style.maxWidth = '100%';
+    img.style.height = 'auto';
+    img.style.display = 'block';
+    img.alt = 'Diagram';
+    previewContent.appendChild(img);
 
     previewContent.classList.add('animate');
     setTimeout(() => previewContent.classList.remove('animate'), 400);
@@ -493,25 +474,28 @@ async function renderDiagram() {
     showState('content');
     setStatus('success', 'Rendered ✓');
 
-    // Update URL bar
     state.currentUrl = url;
     confluenceUrl.value = url;
     btnCopyUrl.disabled = false;
     btnDownloadSvg.disabled = false;
     btnDownloadPng.disabled = false;
+    state.isRendering = false;
+  };
 
-  } catch (err) {
+  img.onerror = () => {
     showState('error');
-    errorMessage.textContent = `Render failed: ${err.message}`;
+    errorMessage.textContent = 'Render failed: invalid diagram syntax or unsupported diagram type.';
     setStatus('error', 'Error');
     state.currentUrl = '';
     confluenceUrl.value = '';
     btnCopyUrl.disabled = true;
     btnDownloadSvg.disabled = true;
     btnDownloadPng.disabled = true;
-  } finally {
     state.isRendering = false;
-  }
+  };
+
+  // Set src — browser loads directly from mermaid.ink or kroki.io
+  img.src = url;
 }
 
 // Debounced auto-render
