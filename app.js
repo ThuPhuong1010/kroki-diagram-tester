@@ -705,13 +705,21 @@ btnSync.addEventListener('click', async () => {
     const pngBlob = await pngRes.blob();
 
     if (!HAS_API) {
-      throw new Error('Open http://localhost:3333 (run: npm run kroki) to enable sync');
+      throw new Error('Open the team server URL or run: npm run kroki → http://localhost:3333');
     }
 
-    // 2. POST to local proxy — server handles Confluence auth from .env
-    const form = new FormData();
-    form.append('file', pngBlob, fname);
-    const res  = await fetch(`/api/confluence/upload/${pageId}`, { method: 'POST', body: form });
+    // 2. Send PNG as base64 JSON — works on Vercel serverless + local server
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload  = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(pngBlob);
+    });
+    const res  = await fetch(`/api/confluence/upload/${pageId}`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ filename: fname, data: base64 }),
+    });
     const data = await res.json();
     if (!res.ok || !data.ok) throw new Error(data.error || `Server ${res.status}`);
 
