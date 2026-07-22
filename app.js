@@ -376,30 +376,50 @@ const statusText = $('statusText');
 
 const zoomLabel  = $('zoomLabel');
 
-// ─── Kroki Encoding ──────────────────────────────────────────────────────────
+// ─── Encoding & URL Building ─────────────────────────────────────────────────
 /**
- * Encode diagram code to Kroki-compatible Base64URL string
- * Kroki requires: UTF-8 text → zlib deflate (level 9) → base64url
- * Uses pako which is the same library Kroki's own tools use.
+ * HYBRID ROUTING:
+ *   Mermaid  → mermaid.ink  (uses headless browser on dedicated infra, always stable)
+ *   Others   → kroki.io     (PlantUML, GraphViz, D2, BPMN, C4, DBML, etc.)
+ *
+ * Why: kroki.io public instance uses Puppeteer/Chromium for Mermaid rendering
+ * and frequently hits resource limits ("Resource temporarily unavailable").
+ * mermaid.ink is purpose-built for Mermaid and is much more reliable.
  */
-function encodeForKroki(text) {
-  // pako.deflate returns Uint8Array compressed with zlib header (what Kroki expects)
-  const compressed = pako.deflate(text, { level: 9 });
 
-  // Convert Uint8Array to binary string for btoa
+// Mermaid encoding: plain Base64 (UTF-8 safe) — mermaid.ink format
+function encodeMermaid(text) {
+  // unescape+encodeURIComponent handles full UTF-8 before btoa
+  return btoa(unescape(encodeURIComponent(text)));
+}
+
+// Kroki encoding: pako zlib deflate → base64url — used by PlantUML, GraphViz, D2, etc.
+function encodeKroki(text) {
+  const compressed = pako.deflate(text, { level: 9 });
   let binary = '';
   const len = compressed.length;
   for (let i = 0; i < len; i++) {
     binary += String.fromCharCode(compressed[i]);
   }
-
-  // Base64 URL-safe (replace + with -, / with _)
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_');
 }
 
+// Diagram types routed to mermaid.ink
+const MERMAID_TYPES = new Set(['mermaid']);
+
+function buildDiagramUrl(code, type, format) {
+  if (MERMAID_TYPES.has(type)) {
+    // mermaid.ink supports svg and img (png)
+    const endpoint = format === 'png' ? 'img' : 'svg';
+    return `https://mermaid.ink/${endpoint}/${encodeMermaid(code)}`;
+  }
+  // All other types → kroki.io
+  return `https://kroki.io/${type}/${format}/${encodeKroki(code)}`;
+}
+
+// Keep backward compat alias
 function buildKrokiUrl(code, type, format) {
-  const encoded = encodeForKroki(code);
-  return `https://kroki.io/${type}/${format}/${encoded}`;
+  return buildDiagramUrl(code, type, format);
 }
 
 // ─── Render ───────────────────────────────────────────────────────────────────
