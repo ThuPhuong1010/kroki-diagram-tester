@@ -113,18 +113,54 @@ async function uploadAttachment(cfUrl, pageId, filename, pngBuf, auth) {
   }
 }
 
-// Insert <ac:image> macros after each code block (idempotent — skips if already present)
-function patchPageBody(html, diagrams) {
+// Encode diagram code as base64url for embedding in a URL
+function encodeCodeForUrl(code) {
+  return Buffer.from(code, 'utf-8').toString('base64url');
+}
+
+// Insert rendered image + "Edit in Kroki" link after each code block.
+// Idempotent: uses HTML comment markers keyed by filename (which contains code hash).
+// If code changes → filename changes → old marker replaced automatically.
+function patchPageBody(html, diagrams, pageId, toolUrl) {
   let body = html;
   let changed = false;
+  const GEN_END = '<!-- /kroki -->';
+
   for (const d of diagrams) {
-    const pos = body.indexOf(d.fullMatch);
-    if (pos === -1) continue;
-    const afterPos = pos + d.fullMatch.length;
-    // Skip if this filename already appears right after the block
-    if (body.slice(afterPos, afterPos + 300).includes(d.filename)) continue;
-    const imgMacro = `\n<ac:image ac:align="center"><ri:attachment ri:filename="${d.filename}"/></ac:image>`;
-    body = body.slice(0, afterPos) + imgMacro + body.slice(afterPos);
+    const codePos = body.indexOf(d.fullMatch);
+    if (codePos === -1) continue;
+    const insertAt = codePos + d.fullMatch.length;
+
+    const genStart  = `<!-- kroki:${d.filename} -->`;
+    const editHref  = `${toolUrl}?code=${encodeCodeForUrl(d.code)}&amp;type=${d.type}&amp;page=${pageId}`;
+    const newBlock  =
+      `\n${genStart}` +
+      `\n<ac:image ac:align="center"><ri:attachment ri:filename="${d.filename}"/></ac:image>` +
+      `\n<p style="text-align:center;font-size:11px">` +
+        `<a href="${editHref}" rel="nofollow">✏️ Edit in Kroki ↗</a>` +
+      `</p>` +
+      `\n${GEN_END}`;
+
+    // Look for any kroki marker immediately after this code block
+    const zone       = body.slice(insertAt, insertAt + 300);
+    const markerIdx  = zone.indexOf('<!-- kroki:');
+
+    if (markerIdx !== -1) {
+      const absStart = insertAt + markerIdx;
+      if (body.slice(absStart, absStart + genStart.length) === genStart) {
+        continue; // same code hash → nothing changed, skip
+      }
+      // Different hash: code was edited → find end marker and replace
+      const endIdx = body.indexOf(GEN_END, absStart);
+      if (endIdx !== -1) {
+        body = body.slice(0, absStart) + newBlock.trimStart() + body.slice(endIdx + GEN_END.length);
+        changed = true;
+        continue;
+      }
+    }
+
+    // No marker yet → first time, insert
+    body = body.slice(0, insertAt) + newBlock + body.slice(insertAt);
     changed = true;
   }
   return { body, changed };
@@ -171,9 +207,11 @@ module.exports = async (req, res) => {
       }
     }));
 
-    // 4. Patch page body to add image macros (only for successfully uploaded diagrams)
+    // 4. Patch page body: add image + "Edit in Kroki" link (only for successfully uploaded)
+    const toolUrl  = process.env.TOOL_URL ||
+      `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers['x-forwarded-host'] || req.headers.host || 'mvldiagram.vercel.app'}`;
     const uploaded = diagrams.filter(d => !errors.find(e => e.idx === d.idx));
-    const { body: newBody, changed } = patchPageBody(storageHtml, uploaded);
+    const { body: newBody, changed } = patchPageBody(storageHtml, uploaded, pageId, toolUrl);
 
     if (changed) {
       const putRes = await fetch(`${cfUrl}/wiki/rest/api/content/${pageId}`, {

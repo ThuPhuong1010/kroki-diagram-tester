@@ -1260,12 +1260,46 @@ btnLibNew.addEventListener('click', () => {
 });
 libSearch.addEventListener('input', renderLibrary);
 
+// Decode base64url (Node Buffer.toString('base64url') output) back to UTF-8 string
+function decodeBase64Url(b64url) {
+  const b64     = b64url.replace(/-/g, '+').replace(/_/g, '/');
+  const padded  = b64 + '='.repeat((4 - b64.length % 4) % 4);
+  return decodeURIComponent(escape(atob(padded)));
+}
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 (function init() {
   loadCreds();
-  // URL params override localStorage (useful for bookmarks / pre-configured links)
-  // Usage: ?cfUrl=https://site.atlassian.net&cfEmail=you@co.com&cfPageId=123&cfFname=arch.png
   const p = new URLSearchParams(window.location.search);
+
+  // Deep-link from Confluence "Edit in Kroki" link:
+  // ?code=BASE64URL&type=mermaid&page=PAGE_ID
+  const deepCode = p.get('code');
+  const deepPage = p.get('page');
+  if (deepCode && deepPage) {
+    try {
+      const code = decodeBase64Url(deepCode);
+      const type = p.get('type') || 'mermaid';
+      editor.value      = code;
+      diagramType.value = type;
+      cfPageId.value    = deepPage;
+      // Set diagram name from type for easy identification
+      diagramName.value = `${type} diagram`;
+      // Clean URL so refresh doesn't reload the same params
+      history.replaceState({}, '', location.pathname);
+      // Update creds/button state then render
+      if (HAS_API && credFields) credFields.style.display = 'none';
+      updateSyncBtn();
+      updateProcessBtn();
+      scheduleRender();
+      showToast('Loaded from Confluence — edit and Sync to update the page');
+      return; // skip library restore below
+    } catch (e) {
+      console.warn('Deep link decode failed:', e);
+    }
+  }
+
+  // Legacy params (bookmarks / manual config)
   if (p.get('cfUrl'))    cfUrl.value      = p.get('cfUrl');
   if (p.get('cfEmail'))  cfEmail.value    = p.get('cfEmail');
   if (p.get('cfPageId')) cfPageId.value   = p.get('cfPageId');
