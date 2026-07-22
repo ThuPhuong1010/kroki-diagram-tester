@@ -78,11 +78,14 @@ async function renderViaKroki(type, code) {
     headers: { 'Content-Type': 'text/plain', Accept: 'image/png' },
     body: code
   });
-  if (!r.ok) {
-    const msg = await r.text().catch(() => '');
-    throw new Error(`Kroki ${r.status}: ${msg.slice(0, 120)}`);
+  const buf = Buffer.from(await r.arrayBuffer());
+  // Kroki can return HTTP 4xx but still send a valid PNG (e.g. an error-image).
+  // Accept any response whose body has the PNG magic bytes — discard only if it's plain text.
+  const isPng = buf.length > 4 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+  if (!isPng) {
+    throw new Error(`Kroki ${r.status}: ${buf.toString('utf8', 0, 120)}`);
   }
-  return Buffer.from(await r.arrayBuffer());
+  return buf;
 }
 
 // Upload PNG as Confluence attachment (create or update)
