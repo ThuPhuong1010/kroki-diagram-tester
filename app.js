@@ -644,6 +644,124 @@ outputFormat.addEventListener('change', () => {
   if (editor.value.trim()) scheduleRender();
 });
 
+// ─── Confluence Sync ──────────────────────────────────────────────────────────
+const cfUrl      = $('cfUrl');
+const cfEmail    = $('cfEmail');
+const cfToken    = $('cfToken');
+const cfPageId   = $('cfPageId');
+const cfFileName = $('cfFileName');
+const btnSync    = $('btnSync');
+const syncStatus = $('syncStatus');
+
+// Persist credentials in localStorage (token stored locally only)
+function saveCreds() {
+  localStorage.setItem('cf_url',    cfUrl.value);
+  localStorage.setItem('cf_email',  cfEmail.value);
+  localStorage.setItem('cf_pageid', cfPageId.value);
+  localStorage.setItem('cf_fname',  cfFileName.value);
+  // Note: token NOT saved to localStorage for security
+}
+function loadCreds() {
+  cfUrl.value      = localStorage.getItem('cf_url')    || '';
+  cfEmail.value    = localStorage.getItem('cf_email')  || '';
+  cfPageId.value   = localStorage.getItem('cf_pageid') || '';
+  cfFileName.value = localStorage.getItem('cf_fname')  || 'diagram.png';
+}
+[cfUrl, cfEmail, cfPageId, cfFileName].forEach(el => el.addEventListener('input', saveCreds));
+
+function syncReady() {
+  return cfUrl.value && cfEmail.value && cfToken.value && cfPageId.value && state.currentUrl;
+}
+function updateSyncBtn() {
+  btnSync.disabled = !syncReady();
+}
+[cfUrl, cfEmail, cfToken, cfPageId].forEach(el => el.addEventListener('input', updateSyncBtn));
+
+/**
+ * Upload PNG diagram as attachment to Confluence page.
+ * If attachment exists → update (overwrite). If not → create new.
+ * The attachment URL stays STABLE regardless of diagram content changes.
+ */
+btnSync.addEventListener('click', async () => {
+  if (!syncReady()) return;
+
+  const base     = cfUrl.value.replace(/\/$/, '');
+  const pageId   = cfPageId.value.trim();
+  const fname    = (cfFileName.value.trim() || 'diagram.png');
+  const authB64  = btoa(`${cfEmail.value}:${cfToken.value}`);
+  const headers  = { 'Authorization': `Basic ${authB64}` };
+
+  setSyncStatus('loading', '⏳ Uploading...');
+  btnSync.disabled = true;
+
+  try {
+    // 1. Fetch diagram as PNG blob
+    const pngUrl = buildDiagramUrl(editor.value.trim(), diagramType.value, 'png');
+    const pngRes = await fetch(pngUrl);
+    if (!pngRes.ok) throw new Error('Diagram render failed');
+    const pngBlob = await pngRes.blob();
+
+    // 2. Check if attachment already exists
+    const listUrl = `${base}/wiki/rest/api/content/${pageId}/child/attachment?filename=${encodeURIComponent(fname)}`;
+    const listRes = await fetch(listUrl, { headers });
+    const listData = await listRes.json();
+    const existing = listData.results && listData.results[0];
+
+    // 3. Build form data
+    const form = new FormData();
+    form.append('file', pngBlob, fname);
+    form.append('comment', `Updated by Kroki Diagram Tester — ${new Date().toISOString()}`);
+
+    let uploadRes;
+    if (existing) {
+      // UPDATE existing attachment
+      const updateUrl = `${base}/wiki/rest/api/content/${pageId}/child/attachment/${existing.id}/data`;
+      uploadRes = await fetch(updateUrl, {
+        method: 'POST',
+        headers: { ...headers, 'X-Atlassian-Token': 'no-check' },
+        body: form
+      });
+    } else {
+      // CREATE new attachment
+      const createUrl = `${base}/wiki/rest/api/content/${pageId}/child/attachment`;
+      uploadRes = await fetch(createUrl, {
+        method: 'POST',
+        headers: { ...headers, 'X-Atlassian-Token': 'no-check' },
+        body: form
+      });
+    }
+
+    if (!uploadRes.ok) {
+      const errText = await uploadRes.text();
+      throw new Error(`Confluence API: ${uploadRes.status} — ${errText.substring(0, 120)}`);
+    }
+
+    const uploadData = await uploadRes.json();
+    const attachment = uploadData.results ? uploadData.results[0] : uploadData;
+    const attachUrl  = `${base}/wiki${attachment._links?.download || attachment.results?.[0]?._links?.download || ''}`;
+
+    setSyncStatus('success', existing ? '✅ Updated!' : '✅ Uploaded!');
+
+    // Show attachment URL
+    confluenceUrl.value = attachUrl || 'Check Confluence page';
+    btnCopyUrl.disabled = false;
+
+    // Auto-clear status after 4s
+    setTimeout(() => setSyncStatus('', ''), 4000);
+
+  } catch (err) {
+    setSyncStatus('error', '❌ ' + err.message.substring(0, 60));
+    console.error('Confluence sync error:', err);
+  } finally {
+    updateSyncBtn();
+  }
+});
+
+function setSyncStatus(type, msg) {
+  syncStatus.textContent = msg;
+  syncStatus.className = 'sync-status' + (type ? ' ' + type : '');
+}
+
 // ─── How-to Modal ─────────────────────────────────────────────────────────────
 const modalOverlay = $('modalOverlay');
 const btnHowTo    = $('btnHowTo');
@@ -657,6 +775,8 @@ modalOverlay.addEventListener('click', e => {
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 (function init() {
+  loadCreds();
+  updateSyncBtn();
   // Load default template
   const tpl = TEMPLATES['mermaid-flowchart'];
   editor.value = tpl.code.trimStart();

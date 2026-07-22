@@ -439,46 +439,96 @@ html, body {
 }
 
 /* ===== OUTPUT BAR ===== */
+/* ===== OUTPUT BAR ===== */
 .output-bar {
-  height: auto;
-  min-height: var(--footer-h);
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 16px;
+  flex-direction: column;
+  padding: 0;
   background: var(--bg-surface);
   border-top: 1px solid var(--border);
-  gap: 12px;
   flex-shrink: 0;
-  flex-wrap: wrap;
 }
 
-.output-primary {
+/* ── Sync Panel (top row) ── */
+.sync-panel {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-shrink: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
 }
 
-.output-hint {
-  font-size: 11px;
+.sync-fields {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.sync-field { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 120px; }
+.sync-field--sm { flex: 0 0 110px; min-width: 90px; }
+
+.sync-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
   color: var(--text-muted);
-  white-space: nowrap;
 }
 
+.sync-input {
+  background: var(--bg-base);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 9px;
+  outline: none;
+  transition: border-color 0.2s;
+  width: 100%;
+}
+.sync-input:focus { border-color: var(--accent); }
+.sync-input::placeholder { color: var(--text-muted); }
+
+.sync-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+.sync-status {
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  min-width: 80px;
+}
+.sync-status.success { color: var(--success); }
+.sync-status.error   { color: var(--danger); }
+.sync-status.loading { color: var(--warning); }
+
+/* Confluence button */
 .btn-confluence {
   background: linear-gradient(135deg, #0052cc, #2684ff);
   color: #fff;
   border-color: transparent;
-  box-shadow: 0 2px 10px rgba(0,82,204,0.4);
-  font-size: 13px;
-  padding: 8px 16px;
+  box-shadow: 0 2px 8px rgba(0,82,204,0.35);
+  white-space: nowrap;
 }
 .btn-confluence:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(0,82,204,0.5);
+  box-shadow: 0 4px 14px rgba(0,82,204,0.5);
 }
 .btn-confluence:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+
+/* ── Secondary row ── */
+.output-secondary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  flex-wrap: wrap;
+}
+
+.btn-sm { padding: 5px 10px; font-size: 11px; }
 
 .output-url-group {
   display: flex;

@@ -166,31 +166,55 @@
 
   <!-- Output Bar -->
   <footer class="output-bar">
-    <div class="output-primary">
-      <button class="btn btn-confluence" id="btnDownloadConfluence" disabled>
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        Download for Confluence (PNG)
-      </button>
-    </div>
-
-    <div class="output-url-group">
-      <label class="output-label">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-        SVG URL
-      </label>
-      <div class="url-display-wrapper">
-        <input type="text" id="confluenceUrl" class="url-display" readonly placeholder="Render diagram to get URL..." />
-        <button class="btn-copy" id="btnCopyUrl" title="Copy URL" disabled>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-          <span id="copyBtnText">Copy</span>
+    <!-- PRIMARY: Sync to Confluence -->
+    <div class="sync-panel">
+      <div class="sync-fields">
+        <div class="sync-field">
+          <label class="sync-label">Confluence URL</label>
+          <input id="cfUrl" class="sync-input" type="text" placeholder="https://yoursite.atlassian.net" />
+        </div>
+        <div class="sync-field">
+          <label class="sync-label">Email</label>
+          <input id="cfEmail" class="sync-input" type="email" placeholder="you@email.com" />
+        </div>
+        <div class="sync-field">
+          <label class="sync-label">API Token</label>
+          <input id="cfToken" class="sync-input" type="password" placeholder="Atlassian API token" />
+        </div>
+        <div class="sync-field sync-field--sm">
+          <label class="sync-label">Page ID</label>
+          <input id="cfPageId" class="sync-input" type="text" placeholder="123456" />
+        </div>
+        <div class="sync-field sync-field--sm">
+          <label class="sync-label">File name</label>
+          <input id="cfFileName" class="sync-input" type="text" value="diagram.png" />
+        </div>
+      </div>
+      <div class="sync-actions">
+        <button class="btn btn-confluence" id="btnSync" disabled>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          Sync to Confluence
         </button>
+        <span class="sync-status" id="syncStatus"></span>
       </div>
     </div>
 
-    <div class="output-actions">
-      <button class="btn btn-ghost" id="btnHowTo" title="How to embed in Confluence">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-        How to embed
+    <!-- SECONDARY: Download + URL -->
+    <div class="output-secondary">
+      <button class="btn btn-outline btn-sm" id="btnDownloadConfluence" disabled>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        PNG
+      </button>
+      <div class="url-display-wrapper">
+        <input type="text" id="confluenceUrl" class="url-display" readonly placeholder="URL..." />
+        <button class="btn-copy" id="btnCopyUrl" disabled>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          <span id="copyBtnText">Copy</span>
+        </button>
+      </div>
+      <button class="btn btn-ghost btn-sm" id="btnHowTo">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        Guide
       </button>
       <div class="status-indicator" id="statusIndicator">
         <span class="status-dot" id="statusDot"></span>
