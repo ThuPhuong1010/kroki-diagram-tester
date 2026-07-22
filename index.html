@@ -251,26 +251,21 @@
           ℹ️ Direct sync is disabled on GitHub Pages due to browser CORS restrictions. Use Full Sync mode below.
         </div>
 
-        <div class="howto-section-title" style="margin-top:1.2rem">🖥️ Full Sync Mode (local server)</div>
+        <div class="howto-section-title" style="margin-top:1.2rem">🖥️ Full Sync Mode (Railway or local)</div>
         <div class="howto-step">
           <div class="step-num">1</div>
-          <div class="step-content"><strong>Start local server</strong> — in your terminal:<br/>
-            <code>cd D:\MVillage &amp;&amp; npm run kroki</code></div>
+          <div class="step-content"><strong>Open the team URL</strong> — Railway deployment (ask your admin) or locally: <code>npm run kroki</code> → <code>http://localhost:3333</code></div>
         </div>
         <div class="howto-step">
           <div class="step-num">2</div>
-          <div class="step-content"><strong>Open</strong> <code>http://localhost:3333</code> in your browser. Credentials are loaded from <code>.env</code> automatically.</div>
-        </div>
-        <div class="howto-step">
-          <div class="step-num">3</div>
           <div class="step-content"><strong>Pick a page</strong> via <strong>Browse</strong> — select a Space then a Page. Page ID fills in automatically.</div>
         </div>
         <div class="howto-step">
-          <div class="step-num">4</div>
-          <div class="step-content"><strong>Sync</strong> — click <strong>Sync to Confluence</strong>. PNG uploads as an attachment. Embed once, it updates in-place on re-sync.</div>
+          <div class="step-num">3</div>
+          <div class="step-content"><strong>Sync</strong> — click <strong>Sync to Confluence</strong>. PNG uploads as an attachment. Copy the URL, embed in Confluence once — it updates in-place on every re-sync.</div>
         </div>
         <div class="howto-note">
-          💡 Python alternative: <code>python sync_to_confluence.py diagrams/flow.mmd</code> — same result from terminal.
+          💡 Python alternative: <code>python sync_to_confluence.py diagrams/flow.mmd</code> — same result from terminal, no browser needed.
         </div>
       </div>
     </div>

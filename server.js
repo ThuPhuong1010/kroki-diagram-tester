@@ -32,9 +32,10 @@ function loadEnv(envPath) {
 const ENV_PATH = path.join(__dirname, '..', 'confluence-jira-audit', '.env');
 const ENV      = loadEnv(ENV_PATH);
 
-const CF_URL   = (ENV.ATLASSIAN_URL   || '').replace(/\/$/, '');
-const CF_EMAIL = ENV.ATLASSIAN_EMAIL  || '';
-const CF_TOKEN = ENV.ATLASSIAN_API_TOKEN || '';
+// process.env first (Railway / any cloud), fallback to .env for local dev
+const CF_URL   = (process.env.ATLASSIAN_URL   || ENV.ATLASSIAN_URL   || '').replace(/\/$/, '');
+const CF_EMAIL = process.env.ATLASSIAN_EMAIL  || ENV.ATLASSIAN_EMAIL  || '';
+const CF_TOKEN = process.env.ATLASSIAN_API_TOKEN || ENV.ATLASSIAN_API_TOKEN || '';
 
 if (!CF_URL || !CF_EMAIL || !CF_TOKEN) {
   console.error('❌ Thiếu credentials trong', ENV_PATH);

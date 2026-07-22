@@ -351,8 +351,8 @@ const state = {
   isRendering: false
 };
 
-// Local server mode: when running via server.js the proxy handles Confluence auth
-const IS_LOCAL = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+// API available when NOT on GitHub Pages (works on localhost, Railway, any custom domain)
+const HAS_API = !window.location.hostname.endsWith('github.io');
 
 // ─── DOM refs ─────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -672,11 +672,11 @@ function loadCreds() {
 [cfUrl, cfEmail, cfPageId, cfFileName].forEach(el => el.addEventListener('input', saveCreds));
 
 function syncReady() {
-  if (IS_LOCAL) return !!cfPageId.value && !!state.currentUrl;
+  if (HAS_API) return !!cfPageId.value && !!state.currentUrl;
   return !!(cfUrl.value && cfEmail.value && cfToken.value && cfPageId.value && state.currentUrl);
 }
 function updateSyncBtn() {
-  if (!IS_LOCAL) {
+  if (!HAS_API) {
     btnSync.disabled = true;
     btnSync.title    = 'Run "npm run kroki" then open http://localhost:3333 to enable sync';
     return;
@@ -704,7 +704,7 @@ btnSync.addEventListener('click', async () => {
     if (!pngRes.ok) throw new Error('Diagram render failed');
     const pngBlob = await pngRes.blob();
 
-    if (!IS_LOCAL) {
+    if (!HAS_API) {
       throw new Error('Open http://localhost:3333 (run: npm run kroki) to enable sync');
     }
 
@@ -819,7 +819,7 @@ async function openPicker() {
   pagePickerOverlay.classList.add('open');
   setPickerContent('<div class="picker-loading"><div class="spinner" style="width:18px;height:18px;border-width:2px"></div><span>Loading spaces…</span></div>');
 
-  if (!IS_LOCAL) {
+  if (!HAS_API) {
     setPickerContent('<div class="picker-error">⚠ Browse requires local server — run <code>npm run kroki</code> then open <code>http://localhost:3333</code></div>');
     return;
   }
