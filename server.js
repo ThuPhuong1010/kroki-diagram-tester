@@ -81,6 +81,25 @@ app.get('/api/confluence/pages/:spaceKey', async (req, res) => {
   }
 });
 
+// ── GET /api/confluence/check/:pageId ───────────────────────────────────────
+app.get('/api/confluence/check/:pageId', async (req, res) => {
+  const filename = req.query.filename || 'diagram.png';
+  try {
+    const { status, ok, body } = await cfGet(
+      `/content/${req.params.pageId}/child/attachment`,
+      `filename=${encodeURIComponent(filename)}&limit=1`
+    );
+    if (!ok) return res.status(status).json({ exists: false, error: `Confluence ${status}` });
+    const att = JSON.parse(body).results?.[0] || null;
+    res.json({
+      exists:       !!att,
+      version:      att?.version?.number || null,
+      lastModified: att?.version?.when   || null,
+      url: att ? `${CF_URL}/wiki/download/attachments/${req.params.pageId}/${encodeURIComponent(filename)}` : null
+    });
+  } catch (err) { res.status(502).json({ exists: false, error: err.message }); }
+});
+
 // ── POST /api/confluence/upload/:pageId ─────────────────────────────────────
 // Accepts JSON body: { filename: string, data: base64 string }
 app.post('/api/confluence/upload/:pageId', async (req, res) => {

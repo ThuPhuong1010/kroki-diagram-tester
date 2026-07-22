@@ -829,3 +829,144 @@ html, body {
   .divider { width: 100%; height: 4px; cursor: row-resize; }
   .output-label { display: none; }
 }
+
+/* ===== LIBRARY DRAWER ===== */
+.lib-backdrop {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(2px);
+  z-index: 200;
+}
+.lib-backdrop.open { display: block; }
+
+.lib-drawer {
+  position: fixed; top: 0; right: -420px; bottom: 0;
+  width: 400px; max-width: 95vw;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border-bright);
+  z-index: 201;
+  display: flex; flex-direction: column;
+  transition: right 0.28s cubic-bezier(.4,0,.2,1);
+  box-shadow: -8px 0 32px rgba(0,0,0,0.4);
+}
+.lib-drawer.open { right: 0; }
+
+.lib-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.lib-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 14px; font-weight: 600; color: var(--text-primary);
+}
+.lib-header-btns { display: flex; align-items: center; gap: 6px; }
+
+.lib-search { padding: 10px 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+
+.lib-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+
+.lib-empty {
+  padding: 32px 16px; text-align: center;
+  font-size: 13px; color: var(--text-muted); line-height: 1.8;
+}
+.lib-empty strong { color: var(--text-secondary); }
+
+/* ── Library Card ── */
+.lib-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 6px;
+  transition: border-color 0.15s;
+}
+.lib-card:hover         { border-color: var(--border-bright); }
+.lib-card--active       { border-color: var(--accent); background: rgba(108,142,245,0.06); }
+
+.lib-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lib-card-name {
+  font-size: 13px; font-weight: 600; color: var(--text-primary);
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.lib-del-btn {
+  background: none; border: none; color: var(--text-muted); cursor: pointer;
+  font-size: 12px; padding: 2px 4px; border-radius: 4px; line-height: 1; flex-shrink: 0;
+  transition: all 0.15s;
+}
+.lib-del-btn:hover { background: rgba(248,113,113,0.15); color: var(--danger); }
+
+.lib-card-meta { display: flex; align-items: center; gap: 8px; }
+.lib-type {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+  padding: 2px 6px; border-radius: 4px;
+  background: var(--accent-dim); color: var(--accent);
+}
+.lib-page { font-size: 11px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lib-no-page { color: var(--text-muted); font-style: italic; }
+
+.lib-card-status { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.lib-time { font-size: 10px; color: var(--text-muted); margin-left: auto; }
+
+.lib-card-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+.lib-card-actions .btn { padding: 3px 8px; font-size: 11px; }
+
+/* ── Status Badges ── */
+.lib-badge {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.4px;
+  padding: 2px 7px; border-radius: 99px;
+}
+.lib-badge--local    { background: rgba(139,145,168,0.15); color: var(--text-secondary); }
+.lib-badge--synced   { background: rgba(52,211,153,0.15);  color: var(--success); }
+.lib-badge--modified { background: rgba(251,191,36,0.15);  color: var(--warning); }
+.lib-badge--live     { background: rgba(52,211,153,0.12);  color: var(--success); border: 1px solid rgba(52,211,153,0.3); }
+.lib-badge--missing  { background: rgba(248,113,113,0.12); color: var(--danger);  border: 1px solid rgba(248,113,113,0.3); }
+.lib-badge--checking { background: rgba(251,191,36,0.12);  color: var(--warning); }
+
+/* ── Version History ── */
+.lib-versions {
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+  margin-top: 2px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.lib-ver-row {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 11px; color: var(--text-muted);
+  padding: 3px 4px; border-radius: var(--radius-sm);
+}
+.lib-ver-row:hover { background: var(--bg-hover); }
+.lib-ver-row .btn { padding: 2px 7px; font-size: 10px; }
+
+/* ── Library count badge ── */
+.lib-count {
+  display: none; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 5px;
+  background: var(--accent); color: #fff;
+  font-size: 10px; font-weight: 700;
+  border-radius: 99px;
+}
+
+/* ── Credential fields (hidden when HAS_API) ── */
+.cred-fields { display: contents; }
+
+/* ── Name field ── */
+.sync-field--name { flex: 0 0 150px; min-width: 120px; }
+
+/* ===== TOAST ===== */
+.app-toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(12px);
+  background: var(--bg-elevated); border: 1px solid var(--border-bright);
+  color: var(--text-primary); font-size: 13px; font-weight: 500;
+  padding: 10px 20px; border-radius: 99px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  z-index: 999; opacity: 0;
+  transition: opacity 0.2s, transform 0.2s;
+  pointer-events: none; white-space: nowrap;
+}
+.app-toast--visible {
+  opacity: 1; transform: translateX(-50%) translateY(0);
+}
+.app-toast--warn { border-color: rgba(251,191,36,0.4); color: var(--warning); }

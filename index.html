@@ -101,6 +101,11 @@
     </div>
 
     <div class="toolbar-right">
+      <button class="btn btn-ghost" id="btnOpenLibrary" title="My Diagrams">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        Library
+        <span class="lib-count" id="libCount"></span>
+      </button>
       <button class="btn btn-ghost" id="btnClear" title="Clear editor">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
         Clear
@@ -169,17 +174,23 @@
     <!-- PRIMARY: Sync to Confluence -->
     <div class="sync-panel">
       <div class="sync-fields">
-        <div class="sync-field">
-          <label class="sync-label">Confluence URL</label>
-          <input id="cfUrl" class="sync-input" type="text" placeholder="https://yoursite.atlassian.net" />
+        <div class="sync-field sync-field--name">
+          <label class="sync-label">Diagram Name</label>
+          <input id="diagramName" class="sync-input" type="text" placeholder="e.g. Login Flow" />
         </div>
-        <div class="sync-field">
-          <label class="sync-label">Email</label>
-          <input id="cfEmail" class="sync-input" type="email" placeholder="you@email.com" />
-        </div>
-        <div class="sync-field">
-          <label class="sync-label">API Token</label>
-          <input id="cfToken" class="sync-input" type="password" placeholder="Atlassian API token" />
+        <div id="credFields" class="cred-fields">
+          <div class="sync-field">
+            <label class="sync-label">Confluence URL</label>
+            <input id="cfUrl" class="sync-input" type="text" placeholder="https://yoursite.atlassian.net" />
+          </div>
+          <div class="sync-field">
+            <label class="sync-label">Email</label>
+            <input id="cfEmail" class="sync-input" type="email" placeholder="you@email.com" />
+          </div>
+          <div class="sync-field">
+            <label class="sync-label">API Token</label>
+            <input id="cfToken" class="sync-input" type="password" placeholder="Atlassian API token" />
+          </div>
         </div>
         <div class="sync-field sync-field--sm">
           <label class="sync-label">Page ID</label>
@@ -198,6 +209,10 @@
         </div>
       </div>
       <div class="sync-actions">
+        <button class="btn btn-ghost btn-sm" id="btnSaveDiagram" title="Save diagram to local library">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          Save
+        </button>
         <button class="btn btn-confluence" id="btnSync" disabled>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
           Sync to Confluence
@@ -219,6 +234,7 @@
           <span id="copyBtnText">Copy</span>
         </button>
       </div>
+      <a id="btnOpenPage" class="btn btn-ghost btn-sm" target="_blank" href="#" style="display:none;text-decoration:none">Open ↗</a>
       <button class="btn btn-ghost btn-sm" id="btnHowTo">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
         Guide
@@ -292,6 +308,28 @@
       </div>
     </div>
   </div>
+
+  <!-- Library Drawer -->
+  <div class="lib-backdrop" id="libBackdrop"></div>
+  <aside class="lib-drawer" id="libDrawer">
+    <div class="lib-header">
+      <span class="lib-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        My Diagrams
+      </span>
+      <div class="lib-header-btns">
+        <button class="btn btn-ghost btn-sm" id="btnLibNew">+ New</button>
+        <button class="btn-icon" id="btnLibClose">✕</button>
+      </div>
+    </div>
+    <div class="lib-search">
+      <input type="text" id="libSearch" class="sync-input" placeholder="Search diagrams…" />
+    </div>
+    <div class="lib-list" id="libList"></div>
+  </aside>
+
+  <!-- Toast -->
+  <div class="app-toast" id="appToast"></div>
 
   <script src="app.js"></script>
 </body>

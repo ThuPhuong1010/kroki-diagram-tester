@@ -7,10 +7,11 @@
     { "src": "style.css",              "use": "@vercel/static" }
   ],
   "routes": [
-    { "src": "/api/confluence/spaces",            "dest": "/api/confluence/spaces.js" },
-    { "src": "/api/confluence/pages/([^/]+)",     "dest": "/api/confluence/pages/[spaceKey].js?spaceKey=$1" },
-    { "src": "/api/confluence/upload/([^/]+)",    "dest": "/api/confluence/upload/[pageId].js?pageId=$1" },
-    { "src": "/",                                 "dest": "/index.html" },
-    { "src": "/(.*)",                             "dest": "/$1" }
+    { "src": "/api/confluence/spaces",                  "dest": "/api/confluence/spaces.js" },
+    { "src": "/api/confluence/pages/([^/]+)",           "dest": "/api/confluence/pages/[spaceKey].js?spaceKey=$1" },
+    { "src": "/api/confluence/upload/([^/]+)",          "dest": "/api/confluence/upload/[pageId].js?pageId=$1" },
+    { "src": "/api/confluence/check/([^/]+)",           "dest": "/api/confluence/check/[pageId].js?pageId=$1" },
+    { "src": "/",                                        "dest": "/index.html" },
+    { "src": "/(.*)",                                    "dest": "/$1" }
   ]
 }

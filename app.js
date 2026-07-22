@@ -343,6 +343,60 @@ backend.order -> data.pg`
   }
 };
 
+// ─── Diagram Library ─────────────────────────────────────────────────────────
+function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+function escHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+class DiagramLibrary {
+  constructor() {
+    this.KEY = 'mvl_diagrams';
+    this._d = (() => { try { return JSON.parse(localStorage.getItem(this.KEY)) || {diagrams:[],currentId:null}; } catch { return {diagrams:[],currentId:null}; } })();
+  }
+  _save() { localStorage.setItem(this.KEY, JSON.stringify(this._d)); }
+  get all()       { return this._d.diagrams; }
+  get currentId() { return this._d.currentId; }
+  set currentId(id){ this._d.currentId = id; this._save(); }
+  get current()   { return this._d.diagrams.find(d => d.id === this._d.currentId) || null; }
+  find(id)        { return this._d.diagrams.find(d => d.id === id) || null; }
+
+  _upsert(entry) {
+    const i = this._d.diagrams.findIndex(d => d.id === entry.id);
+    if (i >= 0) this._d.diagrams[i] = entry; else this._d.diagrams.unshift(entry);
+    this._save(); return entry;
+  }
+  create(name, code, type) {
+    const e = { id: genId(), name: name||'Untitled', code, type,
+      pageId:'', pageName:'', spaceKey:'', filename:'diagram.png',
+      confluenceUrl:'', lastSynced:null, syncedCode:null, syncedType:null,
+      modifiedSinceSync:false, checkStatus:null, checkAt:null, versions:[] };
+    this._upsert(e); this.currentId = e.id; return e;
+  }
+  updateCurrent(patch) {
+    const c = this.current; if (!c) return null;
+    const u = { ...c, ...patch };
+    if (c.lastSynced && (patch.code !== undefined || patch.type !== undefined))
+      u.modifiedSinceSync = (u.code !== c.syncedCode) || (u.type !== c.syncedType);
+    return this._upsert(u);
+  }
+  rename(id, name) { const d = this.find(id); if (d) this._upsert({...d, name}); }
+  markSynced(id, {pageId, pageName, spaceKey, filename, confluenceUrl}) {
+    const d = this.find(id); if (!d) return;
+    const now = new Date().toISOString();
+    const versions = [...(d.versions||[]),
+      {v:(d.versions?.length||0)+1, code:d.code, type:d.type, syncedAt:now, confluenceUrl}
+    ].slice(-10);
+    return this._upsert({...d, pageId, pageName, spaceKey, filename, confluenceUrl,
+      lastSynced:now, syncedCode:d.code, syncedType:d.type,
+      modifiedSinceSync:false, versions, checkStatus:'live', checkAt:now});
+  }
+  delete(id) {
+    this._d.diagrams = this._d.diagrams.filter(d => d.id !== id);
+    if (this._d.currentId === id) this._d.currentId = null;
+    this._save();
+  }
+}
+const library = new DiagramLibrary();
+
 // ─── State ────────────────────────────────────────────────────────────────────
 const state = {
   currentUrl: '',
@@ -377,8 +431,23 @@ const btnDownloadPng = null; // removed from UI
 
 const statusDot  = $('statusDot');
 const statusText = $('statusText');
-
 const zoomLabel  = $('zoomLabel');
+
+const diagramName    = $('diagramName');
+const credFields     = $('credFields');
+const btnOpenLibrary = $('btnOpenLibrary');
+const btnLibNew      = $('btnLibNew');
+const btnLibClose    = $('btnLibClose');
+const libDrawer      = $('libDrawer');
+const libBackdrop    = $('libBackdrop');
+const libList        = $('libList');
+const libSearch      = $('libSearch');
+const libCount       = $('libCount');
+const btnSaveDiagram = $('btnSaveDiagram');
+const btnOpenPage    = $('btnOpenPage');
+
+// Tracks pageName/spaceKey picked via the page picker (cleared on new browse)
+let pickedPageMeta = { pageName: '', spaceKey: '' };
 
 // ─── Encoding & URL Building ─────────────────────────────────────────────────
 /**
@@ -508,9 +577,10 @@ function scheduleRender() {
 
 // ─── Copy URL ─────────────────────────────────────────────────────────────────
 btnCopyUrl.addEventListener('click', async () => {
-  if (!state.currentUrl) return;
+  const urlToCopy = confluenceUrl.value;
+  if (!urlToCopy) return;
   try {
-    await navigator.clipboard.writeText(state.currentUrl);
+    await navigator.clipboard.writeText(urlToCopy);
     btnCopyUrl.classList.add('copied');
     copyBtnText.textContent = 'Copied!';
     setTimeout(() => {
@@ -624,7 +694,7 @@ document.addEventListener('mouseup', () => {
 });
 
 // ─── Editor Events ────────────────────────────────────────────────────────────
-editor.addEventListener('input', scheduleRender);
+editor.addEventListener('input', () => { scheduleRender(); autoSaveToLibrary(); });
 
 // Tab key → insert spaces
 editor.addEventListener('keydown', e => {
@@ -726,6 +796,37 @@ btnSync.addEventListener('click', async () => {
     setSyncStatus('success', data.updated ? '✅ Updated!' : '✅ Uploaded!');
     confluenceUrl.value = data.url;
     btnCopyUrl.disabled = false;
+
+    // Show "Open ↗" link to the Confluence page
+    const cfPageUrl = (cfUrl.value || '').replace(/\/$/, '') ||
+      (data.url ? data.url.split('/wiki/')[0] : '');
+    if (cfPageUrl && pageId) {
+      btnOpenPage.href = `${cfPageUrl}/wiki/pages/viewpage.action?pageId=${pageId}`;
+      btnOpenPage.style.display = '';
+    }
+
+    // Save to library
+    if (library.currentId) {
+      library.markSynced(library.currentId, {
+        pageId, filename: fname, confluenceUrl: data.url,
+        pageName: pickedPageMeta.pageName || cfPageId.value,
+        spaceKey: pickedPageMeta.spaceKey || ''
+      });
+    } else {
+      const name = diagramName.value.trim() || 'Untitled';
+      const entry = library.create(name, editor.value.trim(), diagramType.value);
+      library.markSynced(entry.id, {
+        pageId, filename: fname, confluenceUrl: data.url,
+        pageName: pickedPageMeta.pageName || pageId,
+        spaceKey: pickedPageMeta.spaceKey || ''
+      });
+    }
+    updateLibCount();
+
+    // Auto-copy Confluence URL
+    navigator.clipboard.writeText(data.url).catch(() => {});
+    showToast('Synced — Confluence URL copied!');
+
     setTimeout(() => setSyncStatus('', ''), 4000);
 
   } catch (err) {
@@ -765,8 +866,9 @@ const pickerList        = $('pickerList');
 const pickerBreadcrumb  = $('pickerBreadcrumb');
 const btnBrowsePages    = $('btnBrowsePages');
 
-let pickerMode     = 'spaces';
-let pickerAllItems = [];
+let pickerMode            = 'spaces';
+let pickerAllItems        = [];
+let pickerCurrentSpaceKey = '';
 
 function setPickerContent(html) { pickerList.innerHTML = html; }
 
@@ -793,6 +895,7 @@ async function onPickerClick(el) {
   const label = decodeURIComponent(el.dataset.label);
 
   if (pickerMode === 'spaces') {
+    pickerCurrentSpaceKey = key;
     pickerMode = 'pages';
     pickerTitle.textContent = label;
     pickerBreadcrumb.innerHTML =
@@ -813,6 +916,7 @@ async function onPickerClick(el) {
     }
   } else {
     cfPageId.value = id;
+    pickedPageMeta = { pageName: label, spaceKey: pickerCurrentSpaceKey || '' };
     saveCreds();
     updateSyncBtn();
     pagePickerOverlay.classList.remove('open');
@@ -843,12 +947,198 @@ async function openPicker() {
   }
 }
 
+// Save pageName/spaceKey when picker selects a page
+// (injected into onPickerClick via pickedPageMeta)
+
 btnBrowsePages.addEventListener('click', openPicker);
 btnPickerClose.addEventListener('click', () => pagePickerOverlay.classList.remove('open'));
 pagePickerOverlay.addEventListener('click', e => {
   if (e.target === pagePickerOverlay) pagePickerOverlay.classList.remove('open');
 });
 pickerSearch.addEventListener('input', applyPickerFilter);
+
+// ─── Library UI ──────────────────────────────────────────────────────────────
+function showToast(msg, type = 'success') {
+  const t = $('appToast');
+  if (!t) return;
+  t.textContent = msg;
+  t.className = `app-toast app-toast--${type} app-toast--visible`;
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('app-toast--visible'), 2800);
+}
+
+function updateLibCount() {
+  const n = library.all.length;
+  libCount.textContent = n || '';
+  libCount.style.display = n > 0 ? 'inline-flex' : 'none';
+}
+
+function fmtDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-GB', {day:'2-digit',month:'2-digit'}) + ' ' +
+         d.toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'});
+}
+
+function openLibrary()  { renderLibrary(); libDrawer.classList.add('open'); libBackdrop.classList.add('open'); }
+function closeLibrary() { libDrawer.classList.remove('open'); libBackdrop.classList.remove('open'); }
+
+function renderLibrary() {
+  const q = (libSearch?.value || '').toLowerCase();
+  const items = library.all.filter(d =>
+    !q || d.name.toLowerCase().includes(q) || (d.pageName||'').toLowerCase().includes(q)
+  );
+  updateLibCount();
+  if (!items.length) {
+    libList.innerHTML = '<div class="lib-empty">No diagrams saved yet.<br>Click <strong>Save</strong> in the sync bar or <strong>+ New</strong> to start.</div>';
+    return;
+  }
+  libList.innerHTML = items.map(d => {
+    const isCur  = d.id === library.currentId;
+    const hasCf  = !!d.confluenceUrl;
+    const hasPg  = !!d.pageId;
+    const badge  = !d.lastSynced
+      ? '<span class="lib-badge lib-badge--local">Local</span>'
+      : d.modifiedSinceSync
+        ? '<span class="lib-badge lib-badge--modified">Modified</span>'
+        : '<span class="lib-badge lib-badge--synced">Synced</span>';
+    const chk = d.checkStatus === 'live'    ? ' <span class="lib-badge lib-badge--live">✓ Live</span>'
+              : d.checkStatus === 'missing' ? ' <span class="lib-badge lib-badge--missing">✗ Missing</span>'
+              : d.checkStatus === 'checking'? ' <span class="lib-badge lib-badge--checking">…</span>'
+              : '';
+    return `<div class="lib-card${isCur?' lib-card--active':''}" data-id="${d.id}">
+      <div class="lib-card-top">
+        <span class="lib-card-name">${escHtml(d.name)}</span>
+        <button class="lib-del-btn" data-del="${d.id}" title="Delete">✕</button>
+      </div>
+      <div class="lib-card-meta">
+        <span class="lib-type">${d.type}</span>
+        ${d.pageName ? `<span class="lib-page">📄 ${escHtml(d.pageName)}</span>` : '<span class="lib-page lib-no-page">no page</span>'}
+      </div>
+      <div class="lib-card-status">${badge}${chk}${d.lastSynced?`<span class="lib-time">${fmtDate(d.lastSynced)}</span>`:''}</div>
+      <div class="lib-card-actions">
+        <button class="btn btn-ghost btn-sm lib-act" data-a="load"    data-id="${d.id}">Load</button>
+        ${hasCf ? `<button class="btn btn-ghost btn-sm lib-act" data-a="getlink" data-id="${d.id}">Get Link</button>` : ''}
+        ${hasCf&&hasPg ? `<button class="btn btn-ghost btn-sm lib-act" data-a="check"   data-id="${d.id}">Check</button>` : ''}
+        ${d.versions?.length ? `<button class="btn btn-ghost btn-sm lib-act" data-a="history" data-id="${d.id}">History (${d.versions.length})</button>` : ''}
+      </div>
+      <div class="lib-versions" id="lv-${d.id}" style="display:none">
+        ${(d.versions||[]).slice().reverse().map(v =>
+          `<div class="lib-ver-row">v${v.v} · ${fmtDate(v.syncedAt)}
+           <button class="btn btn-ghost btn-sm lib-act" data-a="restore" data-id="${d.id}" data-v="${v.v}">Restore</button>
+          </div>`
+        ).join('')}
+      </div>
+    </div>`;
+  }).join('');
+
+  libList.querySelectorAll('.lib-act').forEach(btn =>
+    btn.addEventListener('click', e => { e.stopPropagation(); onLibAction(btn.dataset.a, btn.dataset.id, btn.dataset.v); })
+  );
+  libList.querySelectorAll('[data-del]').forEach(btn =>
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const d = library.find(btn.dataset.del);
+      if (d && confirm(`Delete "${d.name}"?`)) { library.delete(btn.dataset.del); renderLibrary(); }
+    })
+  );
+}
+
+async function onLibAction(action, id, vNum) {
+  const d = library.find(id);
+  if (!d) return;
+
+  if (action === 'load') {
+    editor.value = d.code;
+    diagramType.value = d.type;
+    diagramName.value = d.name;
+    cfPageId.value    = d.pageId   || '';
+    cfFileName.value  = d.filename || 'diagram.png';
+    if (d.pageName) pickedPageMeta = { pageName: d.pageName, spaceKey: d.spaceKey || '' };
+    library.currentId = id;
+    saveCreds(); updateSyncBtn(); renderLibrary(); closeLibrary(); scheduleRender();
+
+  } else if (action === 'getlink') {
+    if (!d.confluenceUrl) return;
+    navigator.clipboard.writeText(d.confluenceUrl).catch(()=>{});
+    showToast(`Copied: ${d.confluenceUrl.split('/').pop()}`);
+
+  } else if (action === 'check') {
+    if (!d.pageId || !d.filename) return;
+    library._upsert({ ...d, checkStatus: 'checking' }); renderLibrary();
+    try {
+      const r    = await fetch(`/api/confluence/check/${d.pageId}?filename=${encodeURIComponent(d.filename)}`);
+      const data = await r.json();
+      library._upsert({ ...library.find(id), checkStatus: data.exists ? 'live' : 'missing', checkAt: new Date().toISOString() });
+    } catch { library._upsert({ ...library.find(id), checkStatus: 'missing' }); }
+    renderLibrary();
+
+  } else if (action === 'history') {
+    const el = document.getElementById(`lv-${id}`);
+    if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+
+  } else if (action === 'restore') {
+    const v = (d.versions||[]).find(v => String(v.v) === String(vNum));
+    if (!v || !confirm(`Restore v${v.v} (${fmtDate(v.syncedAt)})?`)) return;
+    editor.value = v.code; diagramType.value = v.type;
+    library.currentId = id;
+    library.updateCurrent({ code: v.code, type: v.type });
+    diagramName.value = d.name; cfPageId.value = d.pageId||''; cfFileName.value = d.filename||'diagram.png';
+    closeLibrary(); scheduleRender();
+    showToast(`Restored v${v.v}`);
+  }
+}
+
+// Auto-save current library entry when code changes (debounced 2s)
+let _autoSaveTimer;
+function autoSaveToLibrary() {
+  clearTimeout(_autoSaveTimer);
+  _autoSaveTimer = setTimeout(() => {
+    if (!library.currentId) return;
+    library.updateCurrent({ code: editor.value, type: diagramType.value });
+    updateLibCount();
+  }, 2000);
+}
+
+// Save / create library entry from sync bar
+btnSaveDiagram.addEventListener('click', () => {
+  const name = diagramName.value.trim();
+  if (!name) { diagramName.focus(); showToast('Enter a diagram name first', 'warn'); return; }
+  if (library.currentId) {
+    library.updateCurrent({ code: editor.value, type: diagramType.value });
+    library.rename(library.currentId, name);
+    showToast(`Saved "${name}"`);
+  } else {
+    library.create(name, editor.value, diagramType.value);
+    showToast(`Saved "${name}" to library`);
+  }
+  updateLibCount();
+});
+
+// Rename when user changes the name field
+diagramName.addEventListener('change', () => {
+  const name = diagramName.value.trim();
+  if (name && library.currentId) library.rename(library.currentId, name);
+});
+
+// Library drawer events
+btnOpenLibrary.addEventListener('click', openLibrary);
+btnLibClose.addEventListener('click', closeLibrary);
+libBackdrop.addEventListener('click', closeLibrary);
+btnLibNew.addEventListener('click', () => {
+  editor.value = '';
+  diagramType.value = 'mermaid';
+  diagramName.value = '';
+  cfPageId.value = ''; cfFileName.value = 'diagram.png';
+  pickedPageMeta = { pageName:'', spaceKey:'' };
+  library.currentId = null;
+  showState('placeholder'); confluenceUrl.value = ''; state.currentUrl = '';
+  btnCopyUrl.disabled = true; btnDownloadConfluence.disabled = true;
+  btnOpenPage.style.display = 'none';
+  updateSyncBtn(); closeLibrary();
+  diagramName.focus();
+});
+libSearch.addEventListener('input', renderLibrary);
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 (function init() {
@@ -861,12 +1151,27 @@ pickerSearch.addEventListener('input', applyPickerFilter);
   if (p.get('cfPageId')) cfPageId.value   = p.get('cfPageId');
   if (p.get('cfFname'))  cfFileName.value = p.get('cfFname');
 
+  // Hide credential fields when server handles them
+  if (HAS_API && credFields) credFields.style.display = 'none';
+
+  // Restore last active library entry
+  const cur = library.current;
+  if (cur) {
+    editor.value      = cur.code;
+    diagramType.value = cur.type;
+    diagramName.value = cur.name;
+    cfPageId.value    = cur.pageId   || '';
+    cfFileName.value  = cur.filename || 'diagram.png';
+    if (cur.pageName) pickedPageMeta = { pageName: cur.pageName, spaceKey: cur.spaceKey||'' };
+  } else {
+    // Load default template
+    const tpl = TEMPLATES['mermaid-flowchart'];
+    editor.value = tpl.code.trimStart();
+    diagramType.value = tpl.type;
+  }
+
+  updateLibCount();
   updateSyncBtn();
-  // Load default template
-  const tpl = TEMPLATES['mermaid-flowchart'];
-  editor.value = tpl.code.trimStart();
-  diagramType.value = tpl.type;
   editor.focus();
-  // Auto render on load
   setTimeout(renderDiagram, 300);
 })();
