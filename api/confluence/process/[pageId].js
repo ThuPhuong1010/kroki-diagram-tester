@@ -8,6 +8,30 @@ const DIAGRAM_TYPES = new Set([
   'nomnoml','wavedrom','pikchr','structurizr','dbml','vega','c4plantuml'
 ]);
 
+// Auto-detect diagram type from code content (for unlabeled code blocks)
+function detectDiagramType(code) {
+  const c = code.trim();
+  const first = c.split('\n')[0].trim().toLowerCase();
+
+  // Mermaid: starts with any known diagram keyword
+  if (/^(flowchart|graph\s+(td|lr|rl|bt|tb)|sequencediagram|gantt|classdiagram|statediagram|erdiagram|gitgraph|pie(\s+title)?|mindmap|timeline|xychart-beta|quadrantchart|journey|requirementdiagram|zenuml)/i.test(first))
+    return 'mermaid';
+
+  // PlantUML
+  if (/^@startuml/i.test(first)) return 'plantuml';
+
+  // GraphViz / DOT
+  if (/^(strict\s+)?(di)?graph(\s+\w+)?\s*\{/i.test(first)) return 'graphviz';
+
+  // D2: common pattern "X -> Y: label" or "X: { shape: ... }"
+  if (/^[\w\s"'.-]+\s*(?:->|<->|--)\s*[\w\s"'.-]+/.test(first)) return 'd2';
+
+  // BPMN: XML
+  if (/^<\?xml/i.test(first) && c.includes('bpmn')) return 'bpmn';
+
+  return null; // unknown — skip
+}
+
 // Deterministic filename from code content so re-runs update same attachment
 function diagramFilename(type, code) {
   const hash = crypto.createHash('md5').update(type + '\n' + code).digest('hex').slice(0, 8);
@@ -15,20 +39,33 @@ function diagramFilename(type, code) {
 }
 
 // Extract all diagram code blocks from Confluence storage format HTML
+// Supports: (1) code blocks with language set, (2) code blocks WITHOUT language (auto-detect)
 function extractDiagramBlocks(html) {
   const results = [];
-  // ac:structured-macro ac:name="code" contains language + CDATA body
   const macroRe = /<ac:structured-macro(?:[^>]*)ac:name="code"(?:[^>]*)>([\s\S]*?)<\/ac:structured-macro>/g;
   const langRe  = /ac:name="language"[^>]*>([^<]+)<\/ac:parameter>/i;
   const bodyRe  = /<ac:plain-text-body><!\[CDATA\[([\s\S]*?)\]\]><\/ac:plain-text-body>/i;
   let m, idx = 0;
   while ((m = macroRe.exec(html)) !== null) {
-    const lm = langRe.exec(m[1]);
     const bm = bodyRe.exec(m[1]);
-    if (!lm || !bm) continue;
-    const type = lm[1].trim().toLowerCase();
-    if (!DIAGRAM_TYPES.has(type)) continue;
+    if (!bm) continue;
     const code = bm[1].trim();
+    if (!code) continue;
+
+    const lm   = langRe.exec(m[1]);
+    const lang = lm ? lm[1].trim().toLowerCase() : null;
+
+    // Resolve type: explicit language wins; otherwise auto-detect
+    let type;
+    if (lang && DIAGRAM_TYPES.has(lang)) {
+      type = lang;
+    } else if (!lang || lang === 'none' || lang === 'text' || lang === 'plain') {
+      type = detectDiagramType(code);
+    } else {
+      continue; // explicit language but not a diagram type (e.g. "javascript") — skip
+    }
+
+    if (!type) continue;
     results.push({ idx: idx++, type, code, filename: diagramFilename(type, code), fullMatch: m[0] });
   }
   return results;
