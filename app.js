@@ -766,7 +766,9 @@ function updateSyncBtn() {
 btnSync.addEventListener('click', async () => {
   if (!syncReady()) return;
 
-  const pageId = cfPageId.value.trim();
+  // Defensive: extract page ID from URL if user didn't wait for debounce
+  const pageId = extractPageId(cfPageId.value.trim()) || cfPageId.value.trim();
+  if (pageId !== cfPageId.value.trim()) { cfPageId.value = pageId; cfPageIdHint.textContent = ''; }
   const fname  = cfFileName.value.trim() || 'diagram.png';
 
   setSyncStatus('loading', '⏳ Uploading...');
@@ -860,7 +862,9 @@ function updateProcessBtn() {
 cfPageId.addEventListener('input', updateProcessBtn);
 
 btnProcessPage.addEventListener('click', async () => {
-  const pageId = cfPageId.value.trim();
+  // Defensive: extract page ID from URL if user didn't wait for debounce
+  const pageId = extractPageId(cfPageId.value.trim()) || cfPageId.value.trim();
+  if (pageId !== cfPageId.value.trim()) { cfPageId.value = pageId; cfPageIdHint.textContent = ''; }
   if (!pageId) return;
   setSyncStatus('loading', '⏳ Scanning page...');
   btnProcessPage.disabled = true;
@@ -1269,18 +1273,39 @@ function extractPageId(text) {
   return null;
 }
 
-// ─── Page ID field: accept pasted Confluence URL → auto-extract ID ─────────────
+// ─── Page ID field: accept URL → extract ID, show hint ────────────────────────
+const cfPageIdHint = $('cfPageIdHint');
+
+function tryExtractPageId(raw) {
+  const id = extractPageId(raw);
+  if (id && id !== raw.trim()) {
+    cfPageId.value = id;
+    cfPageIdHint.textContent = `↳ extracted from URL`;
+    saveCreds(); updateSyncBtn(); updateProcessBtn();
+    return true;
+  }
+  cfPageIdHint.textContent = '';
+  return false;
+}
+
+// Immediate extraction on paste (intercept before field updates)
 cfPageId.addEventListener('paste', e => {
   const text = (e.clipboardData || window.clipboardData).getData('text');
   const id = extractPageId(text);
   if (id && id !== text.trim()) {
     e.preventDefault();
     cfPageId.value = id;
-    saveCreds();
-    updateSyncBtn();
-    updateProcessBtn();
-    showToast(`Page ID: ${id}`);
+    cfPageIdHint.textContent = '↳ extracted from URL';
+    saveCreds(); updateSyncBtn(); updateProcessBtn();
   }
+});
+
+// Debounced extraction on manual input (handles typing a URL, auto-fill, etc.)
+let _pageIdTimer;
+cfPageId.addEventListener('input', () => {
+  clearTimeout(_pageIdTimer);
+  cfPageIdHint.textContent = '';
+  _pageIdTimer = setTimeout(() => tryExtractPageId(cfPageId.value), 350);
 });
 
 // ─── Init ─────────────────────────────────────────────────────────────────────

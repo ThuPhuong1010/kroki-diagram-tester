@@ -469,6 +469,8 @@ html, body {
 
 .sync-field { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 120px; }
 .sync-field--sm { flex: 0 0 110px; min-width: 90px; }
+.sync-field--pageid { flex: 0 0 200px; min-width: 140px; }
+.pageid-hint { font-size: 10px; color: var(--accent); min-height: 13px; line-height: 13px; }
 
 .sync-label {
   font-size: 10px;
