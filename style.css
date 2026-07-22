@@ -22,8 +22,6 @@
   /* Text */
   --text-primary:   #e8eaf0;
   --text-secondary: #8b91a8;
-  --text-muted:     #4a5068;
-
   /* Sizing */
   --header-h:  52px;
   --toolbar-h: 56px;
@@ -31,6 +29,26 @@
   --radius:    10px;
   --radius-sm: 6px;
 }
+
+/* ===== MODAL CSS ===== */
+.modal-overlay {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.7); display: none; align-items: center; justify-content: center; z-index: 1000;
+}
+.modal-overlay.active { display: flex; }
+.modal {
+  background: var(--bg-surface); border: 1px solid var(--border-bright);
+  border-radius: var(--radius); width: 450px; padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+.modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.modal-title { font-weight: 600; font-size: 16px; }
+.modal-close { background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 18px; }
+.howto-step { display: flex; gap: 12px; margin-bottom: 12px; align-items: flex-start; }
+.step-num { 
+  background: var(--accent); color: white; width: 20px; height: 20px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; flex-shrink: 0;
+}
+.howto-note { margin-top: 20px; padding: 12px; background: rgba(251,191,36,0.1); border-radius: var(--radius-sm); font-size: 12px; color: var(--warning); }
 
 html, body {
   height: 100%;
@@ -541,7 +559,97 @@ html, body {
 
 .preview-content.animate { animation: slideUp 0.3s ease; }
 
-/* ===== RESPONSIVE ===== */
+/* ===== MODAL ===== */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+
+.modal {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius);
+  width: 480px;
+  max-width: 90vw;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  animation: slideUp 0.25s ease;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-title { font-size: 14px; font-weight: 600; }
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  transition: all 0.15s;
+}
+.modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+.modal-body { padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+
+.howto-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.step-num {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent-dim);
+  border: 1px solid rgba(108,142,245,0.4);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.step-content {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.step-content strong { color: var(--text-primary); }
+.step-content code {
+  background: var(--bg-base);
+  border: 1px solid var(--border-bright);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.howto-note {
+  margin-top: 4px;
+  padding: 10px 14px;
+  background: rgba(251,191,36,0.08);
+  border: 1px solid rgba(251,191,36,0.25);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--warning);
+  line-height: 1.6;
+}
 @media (max-width: 700px) {
   .main-content { flex-direction: column; }
   .editor-panel { flex: 0 0 40%; }

@@ -644,6 +644,17 @@ outputFormat.addEventListener('change', () => {
   if (editor.value.trim()) scheduleRender();
 });
 
+// ─── How-to Modal ─────────────────────────────────────────────────────────────
+const modalOverlay = $('modalOverlay');
+const btnHowTo    = $('btnHowTo');
+const modalClose  = $('modalClose');
+
+btnHowTo.addEventListener('click', () => modalOverlay.classList.add('open'));
+modalClose.addEventListener('click', () => modalOverlay.classList.remove('open'));
+modalOverlay.addEventListener('click', e => {
+  if (e.target === modalOverlay) modalOverlay.classList.remove('open');
+});
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 (function init() {
   // Load default template
