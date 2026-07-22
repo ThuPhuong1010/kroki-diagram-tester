@@ -1,3 +1,16 @@
 {
-  "version": 2
+  "version": 2,
+  "builds": [
+    { "src": "api/confluence/**/*.js", "use": "@vercel/node" },
+    { "src": "index.html",             "use": "@vercel/static" },
+    { "src": "app.js",                 "use": "@vercel/static" },
+    { "src": "style.css",              "use": "@vercel/static" }
+  ],
+  "routes": [
+    { "src": "/api/confluence/spaces",            "dest": "/api/confluence/spaces.js" },
+    { "src": "/api/confluence/pages/([^/]+)",     "dest": "/api/confluence/pages/[spaceKey].js?spaceKey=$1" },
+    { "src": "/api/confluence/upload/([^/]+)",    "dest": "/api/confluence/upload/[pageId].js?pageId=$1" },
+    { "src": "/",                                 "dest": "/index.html" },
+    { "src": "/(.*)",                             "dest": "/$1" }
+  ]
 }

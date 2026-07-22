@@ -37,9 +37,10 @@ const CF_EMAIL = clean(process.env.ATLASSIAN_EMAIL  || ENV.ATLASSIAN_EMAIL  || '
 const CF_TOKEN = clean(process.env.ATLASSIAN_API_TOKEN || ENV.ATLASSIAN_API_TOKEN || '');
 
 if (!CF_URL || !CF_EMAIL || !CF_TOKEN) {
-  console.error('❌ Missing credentials. Check:', ENV_PATH);
-  console.error('   Need: ATLASSIAN_URL, ATLASSIAN_EMAIL, ATLASSIAN_API_TOKEN');
-  process.exit(1);
+  console.warn('⚠️  Missing credentials. Confluence sync will fail.');
+  console.warn('   Check:', ENV_PATH);
+  console.warn('   Need: ATLASSIAN_URL, ATLASSIAN_EMAIL, ATLASSIAN_API_TOKEN');
+  // NOTE: don't process.exit() — this file is local-only; Vercel uses api/ functions
 }
 
 const AUTH_HEADER = 'Basic ' + Buffer.from(`${CF_EMAIL}:${CF_TOKEN}`).toString('base64');
