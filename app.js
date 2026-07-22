@@ -351,6 +351,9 @@ const state = {
   isRendering: false
 };
 
+// Local server mode: when running via server.js the proxy handles Confluence auth
+const IS_LOCAL = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+
 // ─── DOM refs ─────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 
@@ -564,8 +567,7 @@ $('btnClear').addEventListener('click', () => {
   setStatus('', 'Ready');
   confluenceUrl.value = '';
   btnCopyUrl.disabled = true;
-  btnDownloadSvg.disabled = true;
-  btnDownloadPng.disabled = true;
+  btnDownloadConfluence.disabled = true;
   state.currentUrl = '';
 });
 
@@ -670,87 +672,60 @@ function loadCreds() {
 [cfUrl, cfEmail, cfPageId, cfFileName].forEach(el => el.addEventListener('input', saveCreds));
 
 function syncReady() {
-  return cfUrl.value && cfEmail.value && cfToken.value && cfPageId.value && state.currentUrl;
+  if (IS_LOCAL) return !!cfPageId.value && !!state.currentUrl;
+  return !!(cfUrl.value && cfEmail.value && cfToken.value && cfPageId.value && state.currentUrl);
 }
 function updateSyncBtn() {
+  if (!IS_LOCAL) {
+    btnSync.disabled = true;
+    btnSync.title    = 'Run "npm run kroki" then open http://localhost:3333 to enable sync';
+    return;
+  }
   btnSync.disabled = !syncReady();
+  btnSync.title    = '';
 }
 [cfUrl, cfEmail, cfToken, cfPageId].forEach(el => el.addEventListener('input', updateSyncBtn));
 
-/**
- * Upload PNG diagram as attachment to Confluence page.
- * If attachment exists → update (overwrite). If not → create new.
- * The attachment URL stays STABLE regardless of diagram content changes.
- */
+// Upload PNG diagram to Confluence via local proxy (server.js handles auth).
+// Stable URL: /wiki/download/attachments/{pageId}/{filename} — never changes on re-upload.
 btnSync.addEventListener('click', async () => {
   if (!syncReady()) return;
 
-  const base     = cfUrl.value.replace(/\/$/, '');
-  const pageId   = cfPageId.value.trim();
-  const fname    = (cfFileName.value.trim() || 'diagram.png');
-  const authB64  = btoa(`${cfEmail.value}:${cfToken.value}`);
-  const headers  = { 'Authorization': `Basic ${authB64}` };
+  const pageId = cfPageId.value.trim();
+  const fname  = cfFileName.value.trim() || 'diagram.png';
 
   setSyncStatus('loading', '⏳ Uploading...');
   btnSync.disabled = true;
 
   try {
-    // 1. Fetch diagram as PNG blob
+    // 1. Render diagram as PNG blob via kroki.io
     const pngUrl = buildDiagramUrl(editor.value.trim(), diagramType.value, 'png');
     const pngRes = await fetch(pngUrl);
     if (!pngRes.ok) throw new Error('Diagram render failed');
     const pngBlob = await pngRes.blob();
 
-    // 2. Check if attachment already exists
-    const listUrl = `${base}/wiki/rest/api/content/${pageId}/child/attachment?filename=${encodeURIComponent(fname)}`;
-    const listRes = await fetch(listUrl, { headers });
-    const listData = await listRes.json();
-    const existing = listData.results && listData.results[0];
+    if (!IS_LOCAL) {
+      throw new Error('Open http://localhost:3333 (run: npm run kroki) to enable sync');
+    }
 
-    // 3. Build form data
+    // 2. POST to local proxy — server handles Confluence auth from .env
     const form = new FormData();
     form.append('file', pngBlob, fname);
-    form.append('comment', `Updated by Kroki Diagram Tester — ${new Date().toISOString()}`);
+    const res  = await fetch(`/api/confluence/upload/${pageId}`, { method: 'POST', body: form });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || `Server ${res.status}`);
 
-    let uploadRes;
-    if (existing) {
-      // UPDATE existing attachment
-      const updateUrl = `${base}/wiki/rest/api/content/${pageId}/child/attachment/${existing.id}/data`;
-      uploadRes = await fetch(updateUrl, {
-        method: 'POST',
-        headers: { ...headers, 'X-Atlassian-Token': 'no-check' },
-        body: form
-      });
-    } else {
-      // CREATE new attachment
-      const createUrl = `${base}/wiki/rest/api/content/${pageId}/child/attachment`;
-      uploadRes = await fetch(createUrl, {
-        method: 'POST',
-        headers: { ...headers, 'X-Atlassian-Token': 'no-check' },
-        body: form
-      });
-    }
-
-    if (!uploadRes.ok) {
-      const errText = await uploadRes.text();
-      throw new Error(`Confluence API: ${uploadRes.status} — ${errText.substring(0, 120)}`);
-    }
-
-    const uploadData = await uploadRes.json();
-    const attachment = uploadData.results ? uploadData.results[0] : uploadData;
-    const attachUrl  = `${base}/wiki${attachment._links?.download || attachment.results?.[0]?._links?.download || ''}`;
-
-    setSyncStatus('success', existing ? '✅ Updated!' : '✅ Uploaded!');
-
-    // Show attachment URL
-    confluenceUrl.value = attachUrl || 'Check Confluence page';
+    setSyncStatus('success', data.updated ? '✅ Updated!' : '✅ Uploaded!');
+    confluenceUrl.value = data.url;
     btnCopyUrl.disabled = false;
-
-    // Auto-clear status after 4s
     setTimeout(() => setSyncStatus('', ''), 4000);
 
   } catch (err) {
-    setSyncStatus('error', '❌ ' + err.message.substring(0, 60));
+    let msg = err.message || 'Unknown error';
+    if (msg === 'Failed to fetch' || msg.includes('NetworkError') || msg === 'Load failed') {
+      msg = 'Cannot reach server — run: npm run kroki';
+    }
+    setSyncStatus('error', '❌ ' + msg.substring(0, 100));
     console.error('Confluence sync error:', err);
   } finally {
     updateSyncBtn();
@@ -764,8 +739,8 @@ function setSyncStatus(type, msg) {
 
 // ─── How-to Modal ─────────────────────────────────────────────────────────────
 const modalOverlay = $('modalOverlay');
-const btnHowTo    = $('btnHowTo');
-const modalClose  = $('modalClose');
+const btnHowTo     = $('btnHowTo');
+const modalClose   = $('modalClose');
 
 btnHowTo.addEventListener('click', () => modalOverlay.classList.add('open'));
 modalClose.addEventListener('click', () => modalOverlay.classList.remove('open'));
@@ -773,9 +748,111 @@ modalOverlay.addEventListener('click', e => {
   if (e.target === modalOverlay) modalOverlay.classList.remove('open');
 });
 
+// ─── Page Picker ──────────────────────────────────────────────────────────────
+const pagePickerOverlay = $('pagePickerOverlay');
+const btnPickerClose    = $('btnPickerClose');
+const pickerTitle       = $('pickerTitle');
+const pickerSearch      = $('pickerSearch');
+const pickerList        = $('pickerList');
+const pickerBreadcrumb  = $('pickerBreadcrumb');
+const btnBrowsePages    = $('btnBrowsePages');
+
+let pickerMode     = 'spaces';
+let pickerAllItems = [];
+
+function setPickerContent(html) { pickerList.innerHTML = html; }
+
+function applyPickerFilter() {
+  const q = pickerSearch.value.toLowerCase();
+  const items = q ? pickerAllItems.filter(i => i.label.toLowerCase().includes(q)) : pickerAllItems;
+  if (!items.length) { setPickerContent('<div class="picker-empty">No results</div>'); return; }
+  const icon = pickerMode === 'spaces' ? '📁' : '📄';
+  setPickerContent(items.map(i =>
+    `<div class="picker-item" data-id="${i.id}" data-key="${i.key||''}" data-label="${encodeURIComponent(i.label)}">
+      <span class="picker-icon">${icon}</span>
+      <span class="picker-item-label">${i.label}</span>
+      <span class="picker-item-meta">${i.key || '#'+i.id}</span>
+    </div>`
+  ).join(''));
+  pickerList.querySelectorAll('.picker-item').forEach(el =>
+    el.addEventListener('click', () => onPickerClick(el))
+  );
+}
+
+async function onPickerClick(el) {
+  const id    = el.dataset.id;
+  const key   = el.dataset.key;
+  const label = decodeURIComponent(el.dataset.label);
+
+  if (pickerMode === 'spaces') {
+    pickerMode = 'pages';
+    pickerTitle.textContent = label;
+    pickerBreadcrumb.innerHTML =
+      `<button class="picker-back-btn" id="crumbBack">← Spaces</button>
+       <span class="picker-crumb-sep">›</span>
+       <span class="picker-crumb-active">${label}</span>`;
+    $('crumbBack').addEventListener('click', openPicker);
+    pickerSearch.value = '';
+    setPickerContent('<div class="picker-loading"><div class="spinner" style="width:18px;height:18px;border-width:2px"></div><span>Loading pages…</span></div>');
+    try {
+      const res  = await fetch(`/api/confluence/pages/${key}`);
+      if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).substring(0, 80)}`);
+      const data = await res.json();
+      pickerAllItems = (data.results || []).map(p => ({ id: p.id, label: p.title }));
+      applyPickerFilter();
+    } catch (e) {
+      setPickerContent(`<div class="picker-error">⚠ ${e.message}</div>`);
+    }
+  } else {
+    cfPageId.value = id;
+    saveCreds();
+    updateSyncBtn();
+    pagePickerOverlay.classList.remove('open');
+  }
+}
+
+async function openPicker() {
+  pickerMode = 'spaces';
+  pickerTitle.textContent = 'Browse Confluence';
+  pickerBreadcrumb.innerHTML = '<span class="picker-crumb-active">Spaces</span>';
+  pickerSearch.value = '';
+  pagePickerOverlay.classList.add('open');
+  setPickerContent('<div class="picker-loading"><div class="spinner" style="width:18px;height:18px;border-width:2px"></div><span>Loading spaces…</span></div>');
+
+  if (!IS_LOCAL) {
+    setPickerContent('<div class="picker-error">⚠ Browse requires local server — run <code>npm run kroki</code> then open <code>http://localhost:3333</code></div>');
+    return;
+  }
+
+  try {
+    const res  = await fetch('/api/confluence/spaces');
+    if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).substring(0, 80)}`);
+    const data = await res.json();
+    pickerAllItems = (data.results || []).map(s => ({ id: s.id, key: s.key, label: s.name }));
+    applyPickerFilter();
+  } catch (e) {
+    setPickerContent(`<div class="picker-error">⚠ ${e.message}</div>`);
+  }
+}
+
+btnBrowsePages.addEventListener('click', openPicker);
+btnPickerClose.addEventListener('click', () => pagePickerOverlay.classList.remove('open'));
+pagePickerOverlay.addEventListener('click', e => {
+  if (e.target === pagePickerOverlay) pagePickerOverlay.classList.remove('open');
+});
+pickerSearch.addEventListener('input', applyPickerFilter);
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 (function init() {
   loadCreds();
+  // URL params override localStorage (useful for bookmarks / pre-configured links)
+  // Usage: ?cfUrl=https://site.atlassian.net&cfEmail=you@co.com&cfPageId=123&cfFname=arch.png
+  const p = new URLSearchParams(window.location.search);
+  if (p.get('cfUrl'))    cfUrl.value      = p.get('cfUrl');
+  if (p.get('cfEmail'))  cfEmail.value    = p.get('cfEmail');
+  if (p.get('cfPageId')) cfPageId.value   = p.get('cfPageId');
+  if (p.get('cfFname'))  cfFileName.value = p.get('cfFname');
+
   updateSyncBtn();
   // Load default template
   const tpl = TEMPLATES['mermaid-flowchart'];
