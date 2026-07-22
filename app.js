@@ -10,33 +10,32 @@ const TEMPLATES = {
   'mermaid-flowchart': {
     type: 'mermaid',
     code: `flowchart TD
-    A([🚀 Start]) --> B{Login OK?}
+    A([Start]) --> B{Login OK?}
     B -- Yes --> C[Load Dashboard]
     B -- No  --> D[Show Error]
     C --> E{Role?}
-    E -- Admin  --> F[Admin Panel]
-    E -- User   --> G[User Panel]
-    D --> H([❌ End])
-    F --> I([✅ End])
+    E -- Admin --> F[Admin Panel]
+    E -- User  --> G[User Panel]
+    D --> H([End])
+    F --> I([Done])
     G --> I`
   },
   'mermaid-sequence': {
     type: 'mermaid',
     code: `sequenceDiagram
-    autonumber
-    participant U as 👤 User
-    participant F as 🖥 Frontend
-    participant B as ⚙️ Backend
-    participant D as 🗄 Database
+    participant User
+    participant Frontend
+    participant Backend
+    participant Database
 
-    U->>F: Login (email, password)
-    F->>B: POST /api/auth/login
-    B->>D: SELECT user WHERE email=?
-    D-->>B: User record
-    B-->>F: JWT Token
-    F-->>U: Redirect → Dashboard
+    User->>Frontend: Login (email, password)
+    Frontend->>Backend: POST /api/auth/login
+    Backend->>Database: SELECT user WHERE email=?
+    Database-->>Backend: User record
+    Backend-->>Frontend: JWT Token
+    Frontend-->>User: Redirect to Dashboard
 
-    Note over B,D: Password verified with bcrypt`
+    Note over Backend,Database: Password verified with bcrypt`
   },
   'mermaid-class': {
     type: 'mermaid',
@@ -99,37 +98,37 @@ const TEMPLATES = {
   'mermaid-gantt': {
     type: 'mermaid',
     code: `gantt
-    title 🗓 Sprint Q3 2026
+    title Sprint Q3 2026
     dateFormat  YYYY-MM-DD
     excludes    weekends
 
-    section 🔧 Backend
+    section Backend
     API Design       :done,    api1, 2026-07-01, 5d
     Core Services    :active,  api2, 2026-07-07, 10d
     Unit Tests       :         api3, after api2, 4d
 
-    section 🎨 Frontend
+    section Frontend
     UI Mockup        :done,    ui1, 2026-07-01, 7d
     Component Build  :         ui2, 2026-07-08, 10d
     Integration      :         ui3, after ui2, 3d
 
-    section 🚀 Deploy
+    section Deploy
     Staging          :         dep1, after api3, 2d
     Production       :         dep2, after dep1, 1d`
   },
   'mermaid-state': {
     type: 'mermaid',
-    code: `stateDiagram-v2
+    code: `stateDiagram
     [*] --> Pending
 
-    Pending --> Processing : ✅ Approve
-    Pending --> Cancelled  : ❌ Cancel
+    Pending --> Processing : Approve
+    Pending --> Cancelled : Cancel
 
-    Processing --> Completed : 🎉 Success
-    Processing --> Failed    : ⚠️ Error
+    Processing --> Completed : Success
+    Processing --> Failed : Error
 
-    Failed --> Processing : 🔁 Retry
-    Failed --> Cancelled  : ❌ Give up
+    Failed --> Processing : Retry
+    Failed --> Cancelled : Give up
 
     Completed --> [*]
     Cancelled --> [*]`
@@ -380,20 +379,21 @@ const zoomLabel  = $('zoomLabel');
 // ─── Kroki Encoding ──────────────────────────────────────────────────────────
 /**
  * Encode diagram code to Kroki-compatible Base64URL string
- * Steps: UTF-8 → deflate (zlib level 9) → base64url
+ * Kroki requires: UTF-8 text → zlib deflate (level 9) → base64url
+ * Uses pako which is the same library Kroki's own tools use.
  */
 function encodeForKroki(text) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(text);
+  // pako.deflate returns Uint8Array compressed with zlib header (what Kroki expects)
+  const compressed = pako.deflate(text, { level: 9 });
 
-  // Use fflate for deflate compression
-  const compressed = fflate.deflateSync(data, { level: 9 });
-
-  // Base64 URL-safe encode
+  // Convert Uint8Array to binary string for btoa
   let binary = '';
-  for (let i = 0; i < compressed.length; i++) {
+  const len = compressed.length;
+  for (let i = 0; i < len; i++) {
     binary += String.fromCharCode(compressed[i]);
   }
+
+  // Base64 URL-safe (replace + with -, / with _)
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_');
 }
 
