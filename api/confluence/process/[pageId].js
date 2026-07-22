@@ -38,36 +38,81 @@ function diagramFilename(type, code) {
   return `auto-${hash}-${type}.png`;
 }
 
-// Extract all diagram code blocks from Confluence storage format HTML
-// Supports: (1) code blocks with language set, (2) code blocks WITHOUT language (auto-detect)
+// Extract all diagram code blocks from Confluence storage format HTML.
+// Handles three macro patterns:
+//   1. ac:structured-macro name="code" with language=mermaid/plantuml/etc  (standard Code Block)
+//   2. ac:structured-macro name="mermaid|mermaid-cloud|plantuml|..."       (native diagram macros)
+//   3. ac:adf-extension with extensionKey containing a diagram type         (Confluence Cloud ADF)
 function extractDiagramBlocks(html) {
   const results = [];
-  const macroRe = /<ac:structured-macro(?:[^>]*)ac:name="code"(?:[^>]*)>([\s\S]*?)<\/ac:structured-macro>/g;
-  const langRe  = /ac:name="language"[^>]*>([^<]+)<\/ac:parameter>/i;
   const bodyRe  = /<ac:plain-text-body><!\[CDATA\[([\s\S]*?)\]\]><\/ac:plain-text-body>/i;
-  let m, idx = 0;
-  while ((m = macroRe.exec(html)) !== null) {
+  let idx = 0;
+
+  // ── Pattern 1: Standard "Code Block" macro ───────────────────────────────
+  const codeRe = /<ac:structured-macro(?:[^>]*)ac:name="code"(?:[^>]*)>([\s\S]*?)<\/ac:structured-macro>/g;
+  const langRe = /ac:name="language"[^>]*>([^<]+)<\/ac:parameter>/i;
+  let m;
+  while ((m = codeRe.exec(html)) !== null) {
     const bm = bodyRe.exec(m[1]);
     if (!bm) continue;
     const code = bm[1].trim();
     if (!code) continue;
-
     const lm   = langRe.exec(m[1]);
     const lang = lm ? lm[1].trim().toLowerCase() : null;
-
-    // Resolve type: explicit language wins; otherwise auto-detect
     let type;
     if (lang && DIAGRAM_TYPES.has(lang)) {
       type = lang;
     } else if (!lang || lang === 'none' || lang === 'text' || lang === 'plain') {
       type = detectDiagramType(code);
     } else {
-      continue; // explicit language but not a diagram type (e.g. "javascript") — skip
+      continue;
     }
-
     if (!type) continue;
     results.push({ idx: idx++, type, code, filename: diagramFilename(type, code), fullMatch: m[0] });
   }
+
+  // ── Pattern 2: Native diagram macros (mermaid-cloud, mermaid, plantuml…) ─
+  const NATIVE = { 'mermaid': 'mermaid', 'mermaid-cloud': 'mermaid', 'plantuml': 'plantuml',
+                   'graphviz': 'graphviz', 'd2': 'd2', 'nomnoml': 'nomnoml' };
+  const nativeNames = Object.keys(NATIVE).join('|');
+  const nativeRe = new RegExp(
+    `<ac:structured-macro(?:[^>]*)ac:name="(${nativeNames})"(?:[^>]*)>([\\s\\S]*?)<\\/ac:structured-macro>`, 'g'
+  );
+  while ((m = nativeRe.exec(html)) !== null) {
+    const type = NATIVE[m[1]];
+    const bm   = bodyRe.exec(m[2]);
+    if (!bm) continue;
+    const code = bm[1].trim();
+    if (!code) continue;
+    results.push({ idx: idx++, type, code, filename: diagramFilename(type, code), fullMatch: m[0] });
+  }
+
+  // ── Pattern 3: ADF Extension (Confluence Cloud newer editor) ─────────────
+  // <ac:adf-extension>...<ac:adf-attribute key="extensionKey">mermaid</...>
+  // ...<ac:adf-attribute key="text">code here</...>...</ac:adf-extension>
+  const adfRe  = /<ac:adf-extension>([\s\S]*?)<\/ac:adf-extension>/g;
+  const extKeyRe = /key="extensionKey"[^>]*>([\w-]+)<\/ac:adf-attribute>/i;
+  const adfTextRe = /key="text"[^>]*>([\s\S]*?)<\/ac:adf-attribute>/i;
+  const adfCdataRe = /<!\[CDATA\[([\s\S]*?)\]\]>/i;
+  while ((m = adfRe.exec(html)) !== null) {
+    const inner   = m[1];
+    const keyM    = extKeyRe.exec(inner);
+    if (!keyM) continue;
+    const extKey  = keyM[1].toLowerCase();
+    const type    = NATIVE[extKey] || (DIAGRAM_TYPES.has(extKey) ? extKey : null);
+    if (!type) continue;
+    // Code may be in key="text" attr or in a nested CDATA block
+    let code = '';
+    const textM = adfTextRe.exec(inner);
+    if (textM) {
+      const cdM = adfCdataRe.exec(textM[1]);
+      code = cdM ? cdM[1].trim() : textM[1].trim();
+    }
+    if (!code) code = (() => { const cdM = adfCdataRe.exec(inner); return cdM ? cdM[1].trim() : ''; })();
+    if (!code) continue;
+    results.push({ idx: idx++, type, code, filename: diagramFilename(type, code), fullMatch: m[0] });
+  }
+
   return results;
 }
 
