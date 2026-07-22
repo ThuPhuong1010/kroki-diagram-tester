@@ -368,7 +368,7 @@ class DiagramLibrary {
     const e = { id: genId(), name: name||'Untitled', code, type,
       pageId:'', pageName:'', spaceKey:'', filename:'diagram.png',
       confluenceUrl:'', lastSynced:null, syncedCode:null, syncedType:null,
-      modifiedSinceSync:false, checkStatus:null, checkAt:null, versions:[] };
+      modifiedSinceSync:false, checkStatus:null, checkAt:null, versions:[], pages:[] };
     this._upsert(e); this.currentId = e.id; return e;
   }
   updateCurrent(patch) {
@@ -385,9 +385,14 @@ class DiagramLibrary {
     const versions = [...(d.versions||[]),
       {v:(d.versions?.length||0)+1, code:d.code, type:d.type, syncedAt:now, confluenceUrl}
     ].slice(-10);
+    // Multi-page tracking: upsert into pages[] by pageId
+    const pages = d.pages || [];
+    const pi = pages.findIndex(p => p.pageId === pageId);
+    const pe = {pageId, pageName, spaceKey, filename, confluenceUrl, lastSynced: now};
+    const newPages = pi >= 0 ? pages.map((p,i) => i===pi ? pe : p) : [...pages, pe];
     return this._upsert({...d, pageId, pageName, spaceKey, filename, confluenceUrl,
       lastSynced:now, syncedCode:d.code, syncedType:d.type,
-      modifiedSinceSync:false, versions, checkStatus:'live', checkAt:now});
+      modifiedSinceSync:false, versions, checkStatus:'live', checkAt:now, pages:newPages});
   }
   delete(id) {
     this._d.diagrams = this._d.diagrams.filter(d => d.id !== id);
@@ -823,9 +828,15 @@ btnSync.addEventListener('click', async () => {
     }
     updateLibCount();
 
-    // Auto-copy Confluence URL
+    // Auto-copy Confluence URL silently
     navigator.clipboard.writeText(data.url).catch(() => {});
-    showToast('Synced — Confluence URL copied!');
+    // Show sync result modal with embed instructions
+    showSyncResult({
+      url:      data.url,
+      pageName: pickedPageMeta.pageName || cfPageId.value,
+      pageId:   cfPageId.value.trim(),
+      filename: fname
+    });
 
     setTimeout(() => setSyncStatus('', ''), 4000);
 
@@ -845,6 +856,33 @@ function setSyncStatus(type, msg) {
   syncStatus.textContent = msg;
   syncStatus.className = 'sync-status' + (type ? ' ' + type : '');
 }
+
+// ─── Sync Result Modal ────────────────────────────────────────────────────────
+function showSyncResult({url, pageName, pageId, filename}) {
+  $('srUrl').value = url;
+  $('srFilename').textContent = filename;
+  $('srPageLink').textContent = pageName || `Page ${pageId}`;
+  const cfBase = (cfUrl.value||'').replace(/\/$/,'') ||
+    (url ? url.split('/wiki/')[0] : '');
+  const pageUrl = cfBase && pageId
+    ? `${cfBase}/wiki/pages/viewpage.action?pageId=${pageId}` : '#';
+  $('srPageLink').href  = pageUrl;
+  $('srOpenPageBtn').href = pageUrl;
+  $('syncResultOverlay').classList.add('open');
+}
+(function initSyncResultModal() {
+  const overlay = $('syncResultOverlay');
+  const close = () => overlay.classList.remove('open');
+  $('syncResultClose').addEventListener('click', close);
+  $('syncResultClose2').addEventListener('click', close);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  $('btnCopySrUrl').addEventListener('click', async () => {
+    const url = $('srUrl').value; if (!url) return;
+    await navigator.clipboard.writeText(url).catch(() => {});
+    $('srCopyText').textContent = 'Copied!';
+    setTimeout(() => $('srCopyText').textContent = 'Copy', 2000);
+  });
+})();
 
 // ─── How-to Modal ─────────────────────────────────────────────────────────────
 const modalOverlay = $('modalOverlay');
@@ -1006,6 +1044,11 @@ function renderLibrary() {
               : d.checkStatus === 'missing' ? ' <span class="lib-badge lib-badge--missing">✗ Missing</span>'
               : d.checkStatus === 'checking'? ' <span class="lib-badge lib-badge--checking">…</span>'
               : '';
+    const multiPages = (d.pages||[]).length > 1;
+    const pagesHtml  = multiPages
+      ? `<div class="lib-pages">${d.pages.map(p =>
+          `<span class="lib-page-pill" title="${escHtml(p.pageName||p.pageId)}">${escHtml((p.pageName||p.pageId).slice(0,28))}</span>`
+        ).join('')}</div>` : '';
     return `<div class="lib-card${isCur?' lib-card--active':''}" data-id="${d.id}">
       <div class="lib-card-top">
         <span class="lib-card-name">${escHtml(d.name)}</span>
@@ -1013,13 +1056,15 @@ function renderLibrary() {
       </div>
       <div class="lib-card-meta">
         <span class="lib-type">${d.type}</span>
-        ${d.pageName ? `<span class="lib-page">📄 ${escHtml(d.pageName)}</span>` : '<span class="lib-page lib-no-page">no page</span>'}
+        ${multiPages ? '' : (d.pageName ? `<span class="lib-page">📄 ${escHtml(d.pageName)}</span>` : '<span class="lib-page lib-no-page">no page</span>')}
       </div>
+      ${pagesHtml}
       <div class="lib-card-status">${badge}${chk}${d.lastSynced?`<span class="lib-time">${fmtDate(d.lastSynced)}</span>`:''}</div>
       <div class="lib-card-actions">
         <button class="btn btn-ghost btn-sm lib-act" data-a="load"    data-id="${d.id}">Load</button>
         ${hasCf ? `<button class="btn btn-ghost btn-sm lib-act" data-a="getlink" data-id="${d.id}">Get Link</button>` : ''}
         ${hasCf&&hasPg ? `<button class="btn btn-ghost btn-sm lib-act" data-a="check"   data-id="${d.id}">Check</button>` : ''}
+        ${hasCf ? `<button class="btn btn-ghost btn-sm lib-act" data-a="addpage" data-id="${d.id}" title="Sync này sang trang Confluence khác">+ Page</button>` : ''}
         ${d.versions?.length ? `<button class="btn btn-ghost btn-sm lib-act" data-a="history" data-id="${d.id}">History (${d.versions.length})</button>` : ''}
       </div>
       <div class="lib-versions" id="lv-${d.id}" style="display:none">
@@ -1086,6 +1131,19 @@ async function onLibAction(action, id, vNum) {
     diagramName.value = d.name; cfPageId.value = d.pageId||''; cfFileName.value = d.filename||'diagram.png';
     closeLibrary(); scheduleRender();
     showToast(`Restored v${v.v}`);
+
+  } else if (action === 'addpage') {
+    // Load diagram + clear page pick → open Browse to pick another page
+    editor.value      = d.code;
+    diagramType.value = d.type;
+    diagramName.value = d.name;
+    cfFileName.value  = d.filename || 'diagram.png';
+    cfPageId.value    = '';
+    pickedPageMeta    = { pageName: '', spaceKey: '' };
+    library.currentId = id;
+    updateSyncBtn(); closeLibrary(); scheduleRender();
+    showToast('Chọn trang mới → Sync để thêm trang');
+    setTimeout(() => btnBrowsePages.click(), 400);
   }
 }
 

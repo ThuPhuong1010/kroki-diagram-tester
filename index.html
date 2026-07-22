@@ -331,6 +331,50 @@
   <!-- Toast -->
   <div class="app-toast" id="appToast"></div>
 
+  <!-- Sync Result Modal -->
+  <div class="modal-overlay" id="syncResultOverlay">
+    <div class="modal">
+      <div class="modal-header">
+        <span class="modal-title">✅ Synced to Confluence</span>
+        <button class="modal-close" id="syncResultClose">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="sr-page-row">
+          <span class="sr-label-sm">Trang đã upload:</span>
+          <a id="srPageLink" class="sr-page-link" href="#" target="_blank">—</a>
+        </div>
+        <div class="sr-section">
+          <div class="sr-label-sm">Stable embed URL — copy để dùng trong Confluence:</div>
+          <div class="url-display-wrapper">
+            <input type="text" id="srUrl" class="url-display" readonly />
+            <button class="btn-copy" id="btnCopySrUrl">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <span id="srCopyText">Copy</span>
+            </button>
+          </div>
+        </div>
+        <div class="sr-section">
+          <div class="sr-label-sm">Cách embed diagram vào Confluence page:</div>
+          <div class="sr-steps">
+            <div class="sr-step"><span class="sr-step-num">1</span>Mở trang → nhấn <strong>Edit</strong></div>
+            <div class="sr-step"><span class="sr-step-num">2</span>Chọn <strong>Insert → Image → This page's attachments</strong></div>
+            <div class="sr-step"><span class="sr-step-num">3</span>Chọn file <code id="srFilename">diagram.png</code> → Insert → Save</div>
+          </div>
+          <div class="sr-alt">Hoặc nhanh hơn: Insert → Image → URL → paste URL ở trên → Save.</div>
+        </div>
+        <div class="sr-tip">
+          💡 <strong>Dùng cho nhiều trang?</strong> Copy URL trên rồi Insert → Image → URL vào bất kỳ trang Confluence nào khác — không cần upload lại, cùng 1 file.
+        </div>
+      </div>
+      <div class="sr-footer">
+        <button class="btn btn-ghost" id="syncResultClose2">Đóng</button>
+        <a id="srOpenPageBtn" class="btn btn-confluence" href="#" target="_blank" style="text-decoration:none">
+          Mở trang để embed ↗
+        </a>
+      </div>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>
