@@ -166,13 +166,20 @@
 
   <!-- Output Bar -->
   <footer class="output-bar">
+    <div class="output-primary">
+      <button class="btn btn-confluence" id="btnDownloadConfluence" disabled>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Download for Confluence (PNG)
+      </button>
+    </div>
+
     <div class="output-url-group">
       <label class="output-label">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-        Confluence Image URL
+        SVG URL
       </label>
       <div class="url-display-wrapper">
-        <input type="text" id="confluenceUrl" class="url-display" readonly placeholder="Render a diagram to generate URL..." />
+        <input type="text" id="confluenceUrl" class="url-display" readonly placeholder="Render diagram to get URL..." />
         <button class="btn-copy" id="btnCopyUrl" title="Copy URL" disabled>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
           <span id="copyBtnText">Copy</span>
@@ -181,14 +188,6 @@
     </div>
 
     <div class="output-actions">
-      <button class="btn btn-outline" id="btnDownloadSvg" disabled>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        SVG
-      </button>
-      <button class="btn btn-outline" id="btnDownloadPng" disabled>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        PNG
-      </button>
       <button class="btn btn-ghost" id="btnHowTo" title="How to embed in Confluence">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
         How to embed

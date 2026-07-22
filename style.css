@@ -440,16 +440,45 @@ html, body {
 
 /* ===== OUTPUT BAR ===== */
 .output-bar {
-  height: var(--footer-h);
+  height: auto;
+  min-height: var(--footer-h);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
+  padding: 8px 16px;
   background: var(--bg-surface);
   border-top: 1px solid var(--border);
   gap: 12px;
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
+
+.output-primary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.output-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.btn-confluence {
+  background: linear-gradient(135deg, #0052cc, #2684ff);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 2px 10px rgba(0,82,204,0.4);
+  font-size: 13px;
+  padding: 8px 16px;
+}
+.btn-confluence:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0,82,204,0.5);
+}
+.btn-confluence:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
 
 .output-url-group {
   display: flex;

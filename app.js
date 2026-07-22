@@ -368,8 +368,9 @@ const errorMessage       = $('errorMessage');
 const confluenceUrl  = $('confluenceUrl');
 const btnCopyUrl     = $('btnCopyUrl');
 const copyBtnText    = $('copyBtnText');
-const btnDownloadSvg = $('btnDownloadSvg');
-const btnDownloadPng = $('btnDownloadPng');
+const btnDownloadConfluence = $('btnDownloadConfluence');
+const btnDownloadSvg = null; // removed from UI
+const btnDownloadPng = null; // removed from UI
 
 const statusDot  = $('statusDot');
 const statusText = $('statusText');
@@ -442,8 +443,7 @@ async function renderDiagram() {
     setStatus('', 'Ready');
     confluenceUrl.value = '';
     btnCopyUrl.disabled = true;
-    btnDownloadSvg.disabled = true;
-    btnDownloadPng.disabled = true;
+    btnDownloadConfluence.disabled = true;
     state.currentUrl = '';
     return;
   }
@@ -477,8 +477,7 @@ async function renderDiagram() {
     state.currentUrl = url;
     confluenceUrl.value = url;
     btnCopyUrl.disabled = false;
-    btnDownloadSvg.disabled = false;
-    btnDownloadPng.disabled = false;
+    btnDownloadConfluence.disabled = false;
     state.isRendering = false;
   };
 
@@ -489,8 +488,7 @@ async function renderDiagram() {
     state.currentUrl = '';
     confluenceUrl.value = '';
     btnCopyUrl.disabled = true;
-    btnDownloadSvg.disabled = true;
-    btnDownloadPng.disabled = true;
+    btnDownloadConfluence.disabled = true;
     state.isRendering = false;
   };
 
@@ -523,21 +521,23 @@ btnCopyUrl.addEventListener('click', async () => {
   }
 });
 
-// ─── Download ─────────────────────────────────────────────────────────────────
-async function downloadDiagram(fmt) {
+// ─── Download for Confluence (PNG) ───────────────────────────────────────────
+btnDownloadConfluence.addEventListener('click', async () => {
   const code = editor.value.trim();
   if (!code) return;
-  const url  = buildKrokiUrl(code, diagramType.value, fmt);
-  const res  = await fetch(url);
-  const blob = await res.blob();
-  const a    = document.createElement('a');
-  a.href     = URL.createObjectURL(blob);
-  a.download = `diagram.${fmt}`;
-  a.click();
-}
-
-btnDownloadSvg.addEventListener('click', () => downloadDiagram('svg'));
-btnDownloadPng.addEventListener('click', () => downloadDiagram('png'));
+  // Always download as PNG for Confluence compatibility
+  const pngUrl = buildDiagramUrl(code, diagramType.value, 'png');
+  try {
+    const res  = await fetch(pngUrl);
+    const blob = await res.blob();
+    const a    = document.createElement('a');
+    a.href     = URL.createObjectURL(blob);
+    a.download = `diagram-${diagramType.value}.png`;
+    a.click();
+  } catch {
+    alert('Download failed. Please try again.');
+  }
+});
 
 // ─── Templates ───────────────────────────────────────────────────────────────
 templateSel.addEventListener('change', () => {
