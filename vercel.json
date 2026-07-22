@@ -12,6 +12,7 @@
     { "src": "/api/confluence/pages/([^/]+)",           "dest": "/api/confluence/pages/[spaceKey].js?spaceKey=$1" },
     { "src": "/api/confluence/upload/([^/]+)",          "dest": "/api/confluence/upload/[pageId].js?pageId=$1" },
     { "src": "/api/confluence/check/([^/]+)",            "dest": "/api/confluence/check/[pageId].js?pageId=$1" },
+    { "src": "/api/confluence/embed/([^/]+)",            "dest": "/api/confluence/embed/[pageId].js?pageId=$1" },
     { "src": "/api/confluence/process/([^/]+)",         "dest": "/api/confluence/process/[pageId].js?pageId=$1" },
     { "src": "/api/webhook/confluence",                  "dest": "/api/webhook/confluence.js" },
     { "src": "/",                                        "dest": "/index.html" },

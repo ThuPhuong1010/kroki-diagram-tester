@@ -785,17 +785,17 @@ btnSync.addEventListener('click', async () => {
       throw new Error('Open the team server URL or run: npm run kroki → http://localhost:3333');
     }
 
-    // 2. Send PNG as base64 JSON — works on Vercel serverless + local server
+    // 2. Send PNG as base64 JSON — embed endpoint uploads attachment + patches page body
     const base64 = await new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload  = () => resolve(reader.result.split(',')[1]);
       reader.onerror = reject;
       reader.readAsDataURL(pngBlob);
     });
-    const res  = await fetch(`/api/confluence/upload/${pageId}`, {
+    const res  = await fetch(`/api/confluence/embed/${pageId}`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ filename: fname, data: base64 }),
+      body:    JSON.stringify({ filename: fname, data: base64, type: diagramType.value }),
     });
     const data = await res.json();
     if (!res.ok || !data.ok) throw new Error(data.error || `Server ${res.status}`);
