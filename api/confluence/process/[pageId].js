@@ -71,20 +71,23 @@ function extractDiagramBlocks(html) {
   return results;
 }
 
-// Render diagram via Kroki.io POST (plain text body — simpler than base64 GET)
+// Render diagram — mermaid.ink for Mermaid (avoids Puppeteer crashes on kroki.io),
+// kroki.io POST for everything else.
 async function renderViaKroki(type, code) {
-  const r = await fetch(`https://kroki.io/${type}/png`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain', Accept: 'image/png' },
-    body: code
-  });
-  const buf = Buffer.from(await r.arrayBuffer());
-  // Kroki can return HTTP 4xx but still send a valid PNG (e.g. an error-image).
-  // Accept any response whose body has the PNG magic bytes — discard only if it's plain text.
-  const isPng = buf.length > 4 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
-  if (!isPng) {
-    throw new Error(`Kroki ${r.status}: ${buf.toString('utf8', 0, 120)}`);
+  let r;
+  if (type === 'mermaid') {
+    const encoded = Buffer.from(code, 'utf8').toString('base64');
+    r = await fetch(`https://mermaid.ink/img/${encoded}`, { headers: { Accept: 'image/png' } });
+  } else {
+    r = await fetch(`https://kroki.io/${type}/png`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain', Accept: 'image/png' },
+      body: code
+    });
   }
+  const buf = Buffer.from(await r.arrayBuffer());
+  const isPng = buf.length > 4 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+  if (!isPng) throw new Error(`Render ${r.status}: ${buf.toString('utf8', 0, 120)}`);
   return buf;
 }
 
@@ -167,13 +170,37 @@ function patchPageBody(html, diagrams, pageId, toolUrl) {
 
 // ─── Main handler ─────────────────────────────────────────────────────────────
 module.exports = async (req, res) => {
-  if (req.method !== 'POST') return res.status(405).end();
   const pageId = req.query.pageId;
   if (!pageId) return res.status(400).json({ error: 'Missing pageId' });
 
   const { cfUrl, cfEmail, cfToken } = getCredentials();
   if (!cfUrl) return res.status(500).json({ error: 'Server credentials not configured' });
   const auth = authHeader(cfEmail, cfToken);
+
+  // GET — return diagram code blocks found on this page (used by frontend to auto-load editor)
+  if (req.method === 'GET') {
+    try {
+      const pageRes = await fetch(
+        `${cfUrl}/wiki/rest/api/content/${pageId}?expand=body.storage`,
+        { headers: { Authorization: auth, Accept: 'application/json' } }
+      );
+      if (!pageRes.ok) return res.status(pageRes.status).json({ error: `Confluence ${pageRes.status}` });
+      const page = await pageRes.json();
+      const html = page.body.storage.value;
+      const diagrams = extractDiagramBlocks(html);
+      // Also extract existing attachment filenames from kroki markers so frontend can pre-fill cfFileName
+      const markerRe = /<!-- kroki:(auto-[a-f0-9]+-[a-z0-9]+\.png) -->/g;
+      const markers = [];
+      let m;
+      while ((m = markerRe.exec(html)) !== null) markers.push(m[1]);
+      return res.json({
+        ok: true,
+        diagrams: diagrams.map((d, i) => ({ type: d.type, code: d.code, filename: markers[i] || d.filename }))
+      });
+    } catch (e) {
+      return res.status(502).json({ error: e.message });
+    }
+  }
 
   try {
     // 1. Fetch page with storage body + version

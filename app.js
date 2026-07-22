@@ -1330,6 +1330,24 @@ cfPageId.addEventListener('input', () => {
     if (HAS_API && credFields) credFields.style.display = 'none';
     updateSyncBtn();
     updateProcessBtn();
+
+    // Auto-load diagram code from Confluence when opened via "Edit in Kroki" link
+    // (only if no ?template= was given, meaning the user expects to see the Confluence diagram)
+    if (paramPage && HAS_API && !paramTemplate) {
+      fetch(`/api/confluence/process/${paramPage}`)
+        .then(r => r.json())
+        .then(data => {
+          if (!data.diagrams?.length) return;
+          const d = data.diagrams[0];
+          editor.value      = d.code;
+          diagramType.value = d.type;
+          cfFileName.value  = d.filename;
+          saveCreds(); updateSyncBtn(); scheduleRender();
+        })
+        .catch(() => scheduleRender()); // fail silently — just render whatever is in editor
+      return; // don't scheduleRender yet — will be called after fetch resolves
+    }
+
     scheduleRender();
     return;
   }
