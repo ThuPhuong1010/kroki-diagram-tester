@@ -1313,18 +1313,23 @@ cfPageId.addEventListener('input', () => {
   loadCreds();
   const p = new URLSearchParams(window.location.search);
 
-  // Simple pre-select from Confluence "Edit in Kroki ↗" link: ?type=mermaid&page=PAGE_ID
-  // No code in URL — user pastes diagram code manually.
-  const paramType = p.get('type');
-  const paramPage = p.get('page');
-  if (paramType || paramPage) {
+  // URL params: ?type=mermaid&template=sequence&page=PAGE_ID
+  // Used by "Edit in Kroki ↗" links and shareable tool bookmarks.
+  const paramType     = p.get('type');
+  const paramPage     = p.get('page');
+  const paramTemplate = p.get('template');
+  if (paramType || paramPage || paramTemplate) {
     if (paramType) diagramType.value = paramType;
     if (paramPage) cfPageId.value    = paramPage;
+    if (paramTemplate) {
+      const key = paramType ? `${paramType}-${paramTemplate}` : paramTemplate;
+      const tpl = TEMPLATES[key] || TEMPLATES[paramTemplate];
+      if (tpl) { editor.value = tpl.code.trimStart(); if (!paramType) diagramType.value = tpl.type; }
+    }
     history.replaceState({}, '', location.pathname);
     if (HAS_API && credFields) credFields.style.display = 'none';
     updateSyncBtn();
     updateProcessBtn();
-    if (paramType) showToast(`${paramType} selected — paste your diagram code here`);
     scheduleRender();
     return;
   }
