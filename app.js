@@ -857,6 +857,43 @@ function setSyncStatus(type, msg) {
   syncStatus.className = 'sync-status' + (type ? ' ' + type : '');
 }
 
+// ─── Process Page ─────────────────────────────────────────────────────────────
+const btnProcessPage = $('btnProcessPage');
+
+function updateProcessBtn() {
+  btnProcessPage.disabled = !HAS_API || !cfPageId.value.trim();
+}
+cfPageId.addEventListener('input', updateProcessBtn);
+
+btnProcessPage.addEventListener('click', async () => {
+  const pageId = cfPageId.value.trim();
+  if (!pageId) return;
+  setSyncStatus('loading', '⏳ Scanning page...');
+  btnProcessPage.disabled = true;
+  try {
+    const res  = await fetch(`/api/confluence/process/${pageId}`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `Server ${res.status}`);
+
+    if (data.processed === 0) {
+      setSyncStatus('', data.message || 'No diagram code blocks found');
+      showToast('No diagrams found on this page', 'warn');
+    } else {
+      const detail = data.bodyUpdated ? 'embedded' : 'images updated';
+      setSyncStatus('success', `✅ ${data.processed}/${data.total} diagrams ${detail}`);
+      showToast(`Processed ${data.processed} diagram${data.processed > 1 ? 's' : ''} — images now embedded on page`);
+    }
+    if (data.errors?.length) {
+      console.warn('Process errors:', data.errors);
+    }
+  } catch (err) {
+    setSyncStatus('error', '❌ ' + err.message.substring(0, 100));
+  } finally {
+    updateProcessBtn();
+    setTimeout(() => setSyncStatus('', ''), 5000);
+  }
+});
+
 // ─── Sync Result Modal ────────────────────────────────────────────────────────
 function showSyncResult({url, pageName, pageId, filename}) {
   $('srUrl').value = url;

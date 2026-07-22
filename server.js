@@ -100,6 +100,19 @@ app.get('/api/confluence/check/:pageId', async (req, res) => {
   } catch (err) { res.status(502).json({ exists: false, error: err.message }); }
 });
 
+// ── POST /api/confluence/process/:pageId ────────────────────────────────────
+// Scans Confluence page for diagram code blocks → renders → uploads → embeds
+app.post('/api/confluence/process/:pageId', async (req, res) => {
+  const handler = require('./api/confluence/process/[pageId]');
+  handler({ method: 'POST', query: { pageId: req.params.pageId } }, res);
+});
+
+// ── POST /api/webhook/confluence ─────────────────────────────────────────────
+app.post('/api/webhook/confluence', express.json(), async (req, res) => {
+  const handler = require('./api/webhook/confluence');
+  handler({ method: 'POST', body: req.body, headers: req.headers, query: {} }, res);
+});
+
 // ── POST /api/confluence/upload/:pageId ─────────────────────────────────────
 // Accepts JSON body: { filename: string, data: base64 string }
 app.post('/api/confluence/upload/:pageId', async (req, res) => {
