@@ -2186,67 +2186,76 @@ cfPageId.addEventListener('input', () => {
     const paramCode = p.get('code');
     const paramIdx  = p.get('idx');
     if (paramCode) {
-      let decoded = null;
-
-      // 1. Try Zlib inflate / inflateRaw if code starts with zlib header prefix (eN or eJ from Kroki / pako.deflate)
-      if ((paramCode.startsWith('eN') || paramCode.startsWith('eJ')) && typeof pako !== 'undefined') {
-        try {
-          const bin   = atob(paramCode.replace(/-/g, '+').replace(/_/g, '/'));
-          const bytes = new Uint8Array([...bin].map(c => c.charCodeAt(0)));
-          try {
-            decoded = new TextDecoder().decode(pako.inflate(bytes));
-          } catch (_) {
-            decoded = pako.inflateRaw(bytes, { to: 'string' });
-          }
-        } catch (_) {}
-      }
-
-      // 2. Check if raw string is already plain XML or Diagram code
-      if (!decoded && (
-        paramCode.startsWith('<') ||
-        paramCode.startsWith('<?xml') ||
-        paramCode.startsWith('flowchart') ||
-        paramCode.startsWith('sequenceDiagram') ||
-        paramCode.startsWith('@startuml') ||
-        paramCode.startsWith('digraph') ||
-        paramCode.startsWith('direction:') ||
-        paramCode.includes('\n') ||
-        paramCode.includes(' ')
-      )) {
-        decoded = paramCode;
-      }
-
-      // 3. Try URL Component decode
-      if (!decoded) {
-        try {
-          const urlDecoded = decodeURIComponent(paramCode);
-          if (urlDecoded.startsWith('<') || urlDecoded.startsWith('<?xml') || urlDecoded.includes('\n')) {
-            decoded = urlDecoded;
-          }
-        } catch (_) {}
-      }
-
-      // 4. Fallback
-      if (!decoded) {
-        decoded = paramCode;
-      }
-
-      editor.value = decoded;
-
-      // If idx is present, enter PDM "update" mode so Save uses PATCH (not embed)
-      // This prevents duplicate images when saving back to the same Confluence page.
-      if (paramIdx !== null && paramPage && HAS_API) {
-        const idxNum = parseInt(paramIdx, 10);
-        if (!isNaN(idxNum)) {
-          state.selectedPageDiagramIdx = idxNum;
-          state.pageDiagramMode = 'update';
-          // Clear default filename so server recomputes from new code hash
-          cfFileName.value = '';
-          saveCreds();
+      function processParamCode(rawCode, attempts = 0) {
+        if ((rawCode.startsWith('eN') || rawCode.startsWith('eJ')) && typeof pako === 'undefined' && attempts < 30) {
+          setTimeout(() => processParamCode(rawCode, attempts + 1), 50);
+          return;
         }
+
+        let decoded = null;
+
+        // 1. Try Zlib inflate / inflateRaw if code starts with zlib header prefix (eN or eJ from Kroki / pako.deflate)
+        if (typeof pako !== 'undefined') {
+          try {
+            const bin   = atob(rawCode.replace(/-/g, '+').replace(/_/g, '/'));
+            const bytes = new Uint8Array([...bin].map(c => c.charCodeAt(0)));
+            try {
+              decoded = new TextDecoder().decode(pako.inflate(bytes));
+            } catch (_) {
+              decoded = pako.inflateRaw(bytes, { to: 'string' });
+            }
+          } catch (_) {}
+        }
+
+        // 2. Check if raw string is already plain XML or Diagram code
+        if (!decoded && (
+          rawCode.startsWith('<') ||
+          rawCode.startsWith('<?xml') ||
+          rawCode.startsWith('flowchart') ||
+          rawCode.startsWith('sequenceDiagram') ||
+          rawCode.startsWith('@startuml') ||
+          rawCode.startsWith('digraph') ||
+          rawCode.startsWith('direction:') ||
+          rawCode.includes('\n') ||
+          rawCode.includes(' ')
+        )) {
+          decoded = rawCode;
+        }
+
+        // 3. Try URL Component decode
+        if (!decoded) {
+          try {
+            const urlDecoded = decodeURIComponent(rawCode);
+            if (urlDecoded.startsWith('<') || urlDecoded.startsWith('<?xml') || urlDecoded.includes('\n')) {
+              decoded = urlDecoded;
+            }
+          } catch (_) {}
+        }
+
+        // 4. Fallback
+        if (!decoded) {
+          decoded = rawCode;
+        }
+
+        editor.value = decoded;
+
+        // If idx is present, enter PDM "update" mode so Save uses PATCH (not embed)
+        // This prevents duplicate images when saving back to the same Confluence page.
+        if (paramIdx !== null && paramPage && HAS_API) {
+          const idxNum = parseInt(paramIdx, 10);
+          if (!isNaN(idxNum)) {
+            state.selectedPageDiagramIdx = idxNum;
+            state.pageDiagramMode = 'update';
+            // Clear default filename so server recomputes from new code hash
+            cfFileName.value = '';
+            saveCreds();
+          }
+        }
+
+        scheduleRender();
       }
 
-      scheduleRender();
+      processParamCode(paramCode);
       return;
     }
     if (paramPage && HAS_API && !paramTemplate) {
