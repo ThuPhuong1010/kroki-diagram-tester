@@ -2138,7 +2138,13 @@ cfPageId.addEventListener('input', () => {
 
   if (paramType || paramPage || paramTemplate || paramCode) {
     if (paramType) diagramType.value = paramType;
-    if (paramPage) cfPageId.value    = paramPage;
+    if (paramPage) {
+      cfPageId.value = paramPage;
+      saveCreds();
+    } else if (paramCode) {
+      cfPageId.value = '';
+      saveCreds();
+    }
     if (paramTemplate && !paramCode) {
       const key = paramType ? `${paramType}-${paramTemplate}` : paramTemplate;
       const tpl = TEMPLATES[key] || TEMPLATES[paramTemplate];
