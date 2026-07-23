@@ -734,6 +734,7 @@ async function renderDiagram() {
     btnCopyUrl.disabled = false;
     btnDownloadConfluence.disabled = false;
     state.isRendering = false;
+    updateSyncBtn();
   };
 
   img.onerror = () => {
@@ -745,6 +746,7 @@ async function renderDiagram() {
     btnCopyUrl.disabled = true;
     btnDownloadConfluence.disabled = true;
     state.isRendering = false;
+    updateSyncBtn();
   };
 
   // Set src — browser loads directly from mermaid.ink or kroki.io
@@ -942,7 +944,7 @@ function renderPageDiagramManager() {
 
   if (!state.pageDiagrams.length) {
     pdmList.innerHTML = '<span class="pdm-empty">No diagrams loaded for this page.</span>';
-    pdmContext.innerHTML = '';
+    if (state.pageDiagramMode !== 'add') pdmContext.innerHTML = '';
     return;
   }
 
@@ -1109,7 +1111,8 @@ btnSync.addEventListener('click', async () => {
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || `Server ${res.status}`);
 
-      setSyncStatus('success', state.pageDiagramMode === 'add' ? 'Added to page' : 'Updated selected');
+      const modeLabel = state.pageDiagramMode === 'add' ? 'Added to page' : 'Updated';
+      setSyncStatus('success', `✅ ${modeLabel} — refresh Confluence page to see changes`);
       confluenceUrl.value = data.url;
       btnCopyUrl.disabled = false;
       cfFileName.value = data.filename || fname;
@@ -1122,7 +1125,9 @@ btnSync.addEventListener('click', async () => {
       }
 
       navigator.clipboard.writeText(data.url).catch(() => {});
-      showToast(state.pageDiagramMode === 'add' ? 'Added diagram to Confluence page' : 'Updated selected diagram');
+      showToast(state.pageDiagramMode === 'add'
+        ? 'Added diagram — go refresh your Confluence page'
+        : 'Updated — go refresh your Confluence page (Ctrl+Shift+R)');
       await loadPageDiagrams();
       return;
     }
@@ -1242,13 +1247,17 @@ btnProcessPage.addEventListener('click', async () => {
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error || `Server ${res.status}`);
 
-    if (data.processed === 0) {
+    const processed = data.processed ?? data.rendered ?? 0;
+    if (processed === 0 && !data.cached) {
       setSyncStatus('', data.message || 'No diagram code blocks found');
       showToast('No diagrams found on this page', 'warn');
     } else {
-      const detail = data.bodyUpdated ? 'embedded' : 'images updated';
-      setSyncStatus('success', `✅ ${data.processed}/${data.total} diagrams ${detail}`);
-      showToast(`Processed ${data.processed} diagram${data.processed > 1 ? 's' : ''} — images now embedded on page`);
+      const total   = data.total ?? processed;
+      const cached  = data.cached ?? 0;
+      const detail  = data.bodyUpdated ? 'embedded on page' : 'images uploaded';
+      const cacheNote = cached > 0 ? ` (${cached} cached)` : '';
+      setSyncStatus('success', `✅ ${total} diagrams ${detail}${cacheNote}`);
+      showToast(`Processed ${total} diagram${total > 1 ? 's' : ''} — refresh Confluence page to see updates`);
     }
     if (data.errors?.length) {
       console.warn('Process errors:', data.errors);

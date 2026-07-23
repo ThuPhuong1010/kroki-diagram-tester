@@ -309,16 +309,16 @@ function patchPageBody(html, diagrams, pageId, toolUrl) {
     const codePos = body.indexOf(d.fullMatch);
     if (codePos === -1) continue;
 
-    // ── Case 1: code is INSIDE a kroki block (old expand format → migrate) ────
+    // ── Case 1: code is INSIDE a kroki block (old format → migrate) ──────────
     const beforeCode   = body.slice(0, codePos);
     const krokiOpenIdx = beforeCode.lastIndexOf('<!-- kroki:');
     if (krokiOpenIdx !== -1) {
       const krokiCloseIdx = body.indexOf(GEN_END, krokiOpenIdx);
       if (krokiCloseIdx !== -1 && krokiCloseIdx > codePos) {
-        // Restore code block before the image, removing the expand wrapper
+        // Migrate: code → expand(code) + kroki block after
         body = body.slice(0, krokiOpenIdx)
-             + d.fullMatch                                       // code block visible
-             + newBlock                                          // image + links after
+             + wrapInExpand(d.fullMatch) + '\n'
+             + newBlock
              + body.slice(krokiCloseIdx + GEN_END.length);
         changed = true;
         continue;
@@ -327,15 +327,19 @@ function patchPageBody(html, diagrams, pageId, toolUrl) {
 
     const insertAt = codePos + d.fullMatch.length;
 
-    // ── Case 2: kroki marker follows code block (correct format) ──────────────
-    const zone      = body.slice(insertAt, insertAt + 500);
-    const markerIdx = zone.indexOf('<!-- kroki:');
-    if (markerIdx !== -1 && markerIdx < 400) {
-      const absStart = insertAt + markerIdx;
+    // ── Case 2: kroki marker follows code block (or its expand wrapper) ───────
+    // Look for kroki marker up to 600 chars after code block end
+    // (may be further if code is already inside an expand macro)
+    const expandWrapper = findExpandWrapper(body, codePos, d.fullMatch.length);
+    const searchFrom    = expandWrapper ? expandWrapper.end : insertAt;
+    const zone          = body.slice(searchFrom, searchFrom + 600);
+    const markerIdx     = zone.indexOf('<!-- kroki:');
+    if (markerIdx !== -1 && markerIdx < 500) {
+      const absStart = searchFrom + markerIdx;
       if (body.slice(absStart, absStart + genStart.length) === genStart) {
         continue; // same hash → already up to date
       }
-      // Different hash (code was edited) → replace kroki block only
+      // Different hash → replace kroki block only (code/expand stays as-is)
       const endIdx = body.indexOf(GEN_END, absStart);
       if (endIdx !== -1) {
         body = body.slice(0, absStart) + newBlock.trimStart() + body.slice(endIdx + GEN_END.length);
@@ -344,11 +348,53 @@ function patchPageBody(html, diagrams, pageId, toolUrl) {
       }
     }
 
-    // ── Case 3: first time → insert kroki block after code block ──────────────
-    body = body.slice(0, insertAt) + newBlock + body.slice(insertAt);
+    // ── Case 3: first time → wrap code in expand + insert kroki block after ──
+    body = body.slice(0, codePos)
+         + wrapInExpand(d.fullMatch) + '\n'
+         + newBlock
+         + body.slice(insertAt);
     changed = true;
   }
   return { body, changed };
+}
+
+// Wrap a code block macro in an Expand macro (collapsible) so code is hidden by default.
+function wrapInExpand(codeBlockHtml) {
+  return (
+    '<ac:structured-macro ac:name="expand" ac:schema-version="1">' +
+    '<ac:parameter ac:name="title">📋 Xem mã nguồn sơ đồ</ac:parameter>' +
+    '<ac:rich-text-body>' +
+    '\n' + codeBlockHtml + '\n' +
+    '</ac:rich-text-body>' +
+    '</ac:structured-macro>'
+  );
+}
+
+// Detect if the code block at codePos is already wrapped in an Expand macro.
+// Returns { start, end } (absolute positions in body) or null.
+function findExpandWrapper(body, codePos, codeLen) {
+  const EXPAND_OPEN_TAG = '<ac:structured-macro ac:name="expand"';
+  const RTB_OPEN        = '<ac:rich-text-body>';
+  const RTB_CLOSE       = '</ac:rich-text-body>';
+  const SM_CLOSE        = '</ac:structured-macro>';
+
+  const lookStart = Math.max(0, codePos - 600);
+  const lookback  = body.slice(lookStart, codePos);
+  const relIdx    = lookback.lastIndexOf(EXPAND_OPEN_TAG);
+  if (relIdx === -1) return null;
+  // Verify that <ac:rich-text-body> immediately precedes the code block
+  const rtbRel = lookback.lastIndexOf(RTB_OPEN, lookback.length);
+  if (rtbRel === -1 || rtbRel < relIdx) return null;
+
+  const expandStart = lookStart + relIdx;
+
+  const afterCode = body.slice(codePos + codeLen, codePos + codeLen + 400);
+  const rtbCloseIdx = afterCode.indexOf(RTB_CLOSE);
+  if (rtbCloseIdx === -1 || rtbCloseIdx > 200) return null;
+  const smCloseIdx  = afterCode.indexOf(SM_CLOSE, rtbCloseIdx);
+  if (smCloseIdx === -1 || smCloseIdx > rtbCloseIdx + 100) return null;
+  const expandEnd = codePos + codeLen + smCloseIdx + SM_CLOSE.length;
+  return { start: expandStart, end: expandEnd };
 }
 
 function codeBlockMacro(type, code) {
@@ -369,12 +415,13 @@ function patchOneDiagram(html, target, pageId, toolUrl) {
     filename: target.filename || diagramFilename(target.type, target.code),
     fullMatch: codeBlockMacro(target.type, target.code)
   };
+  const newCodeWithExpand = wrapInExpand(replacement.fullMatch);
   const newBlock = buildKrokiBlock(replacement, pageId, toolUrl).trimStart();
   const GEN_END = '<!-- /kroki -->';
 
   if (target.mode === 'add' || target.idx === null || target.idx === undefined || target.idx < 0) {
-    // Add: append code block + image at end of page
-    return { body: html + '\n' + replacement.fullMatch + newBlock, changed: true, filename: replacement.filename };
+    // Add: append expand(code) + image at end of page
+    return { body: html + '\n' + newCodeWithExpand + '\n' + newBlock, changed: true, filename: replacement.filename };
   }
 
   const diagrams = extractDiagramBlocks(html);
@@ -383,39 +430,43 @@ function patchOneDiagram(html, target, pageId, toolUrl) {
   const codePos = html.indexOf(current.fullMatch);
   if (codePos === -1) throw new Error('Diagram source block not found on page');
 
-  const beforeCode = html.slice(0, codePos);
-  const krokiOpenIdx = beforeCode.lastIndexOf('<!-- kroki:');
+  // Detect if code is already inside an expand wrapper
+  const ew = findExpandWrapper(html, codePos, current.fullMatch.length);
+  const sourceStart = ew ? ew.start : codePos;
+  const sourceEnd   = ew ? ew.end   : codePos + current.fullMatch.length;
+
+  // Case 1: source (code ± expand) is inside an old kroki block → migrate
+  const beforeSource = html.slice(0, sourceStart);
+  const krokiOpenIdx = beforeSource.lastIndexOf('<!-- kroki:');
   if (krokiOpenIdx !== -1) {
     const krokiCloseIdx = html.indexOf(GEN_END, krokiOpenIdx);
-    if (krokiCloseIdx !== -1 && krokiCloseIdx > codePos) {
-      // Code was inside an old expand block → replace entire block with new code + new image
+    if (krokiCloseIdx !== -1 && krokiCloseIdx > sourceStart) {
       return {
-        body: html.slice(0, krokiOpenIdx) + replacement.fullMatch + newBlock + html.slice(krokiCloseIdx + GEN_END.length),
+        body: html.slice(0, krokiOpenIdx) + newCodeWithExpand + '\n' + newBlock + html.slice(krokiCloseIdx + GEN_END.length),
         changed: true,
         filename: replacement.filename
       };
     }
   }
 
-  // Code is before a kroki marker (correct format) → replace old code + old marker
-  const insertAt = codePos + current.fullMatch.length;
-  const zone = html.slice(insertAt, insertAt + 500);
+  // Case 2: kroki marker follows source → replace source + kroki block
+  const zone = html.slice(sourceEnd, sourceEnd + 600);
   const markerIdx = zone.indexOf('<!-- kroki:');
-  if (markerIdx !== -1 && markerIdx < 400) {
-    const absStart = insertAt + markerIdx;
+  if (markerIdx !== -1 && markerIdx < 500) {
+    const absStart = sourceEnd + markerIdx;
     const endIdx = html.indexOf(GEN_END, absStart);
     if (endIdx !== -1) {
       return {
-        body: html.slice(0, codePos) + replacement.fullMatch + newBlock + html.slice(endIdx + GEN_END.length),
+        body: html.slice(0, sourceStart) + newCodeWithExpand + '\n' + newBlock + html.slice(endIdx + GEN_END.length),
         changed: true,
         filename: replacement.filename
       };
     }
   }
 
-  // No kroki marker yet → replace old code with new code, insert image after
+  // Case 3: no kroki marker yet → replace source with expand(new code) + image
   return {
-    body: html.slice(0, codePos) + replacement.fullMatch + newBlock + html.slice(codePos + current.fullMatch.length),
+    body: html.slice(0, sourceStart) + newCodeWithExpand + '\n' + newBlock + html.slice(sourceEnd),
     changed: true,
     filename: replacement.filename
   };
@@ -478,7 +529,9 @@ module.exports = async (req, res) => {
       const version = page.version.number;
       const title = page.title;
 
-      const finalFilename = filename || diagramFilename(type, code);
+      const expectedExt = diagramExt(type);
+      let finalFilename = filename || diagramFilename(type, code);
+      finalFilename = finalFilename.replace(/\.(png|svg)$/i, '') + `.${expectedExt}`;
       const { buf } = await renderViaKroki(type, code);
       await uploadAttachment(cfUrl, pageId, finalFilename, buf, auth);
 
@@ -577,6 +630,7 @@ module.exports = async (req, res) => {
 
     res.json({
       ok: true,
+      processed: uploaded.length,
       rendered: uploaded.length - cached,
       cached,
       total: diagrams.length,
