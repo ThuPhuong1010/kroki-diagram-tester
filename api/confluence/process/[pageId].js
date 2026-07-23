@@ -39,10 +39,15 @@ function detectDiagramType(code) {
   return null; // unknown — skip
 }
 
+// Types kroki.io only supports as SVG (not PNG)
+const SVG_ONLY = new Set(['bpmn', 'vega', 'dbml', 'nomnoml', 'pikchr', 'wavedrom']);
+
+function diagramExt(type) { return SVG_ONLY.has(type) ? 'svg' : 'png'; }
+
 // Deterministic filename from code content so re-runs update same attachment
 function diagramFilename(type, code) {
   const hash = crypto.createHash('md5').update(type + '\n' + code).digest('hex').slice(0, 8);
-  return `auto-${hash}-${type}.png`;
+  return `auto-${hash}-${type}.${diagramExt(type)}`;
 }
 
 // Extract all diagram code blocks from Confluence storage format HTML.
@@ -133,13 +138,14 @@ function extractDiagramBlocks(html) {
 function isPngBuffer(buf) {
   return buf.length > 4 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
 }
+function isSvgBuffer(buf) {
+  const s = buf.toString('utf8', 0, 300);
+  return s.includes('<svg') || s.includes('<?xml');
+}
 
-// Render diagram via fallback chain:
-//   Mermaid  → mermaid.ink (GET, base64url) → kroki.io POST (fallback)
-//   Others   → kroki.io POST only
-// mermaid.ink doesn't need Accept header; its /img/ endpoint always returns PNG.
-// Falls back to kroki.io if mermaid.ink is unreachable or returns non-PNG
-// (e.g. Cloudflare blocking server IPs, rate limit, or unexpected SVG response).
+// Render diagram → returns { buf, ext } where ext is 'png' or 'svg'
+// Fallback chain for mermaid: mermaid.ink GET → kroki.io POST
+// SVG_ONLY types always use SVG format from kroki.io
 async function renderViaKroki(type, code) {
   if (type === 'mermaid') {
     const encoded = Buffer.from(code, 'utf8').toString('base64')
@@ -148,34 +154,37 @@ async function renderViaKroki(type, code) {
       const r = await fetch(`https://mermaid.ink/img/${encoded}`);
       if (r.ok) {
         const buf = Buffer.from(await r.arrayBuffer());
-        if (isPngBuffer(buf)) return buf;
-        // Got 200 but not PNG (e.g. SVG or HTML error page) — fall through
+        if (isPngBuffer(buf)) return { buf, ext: 'png' };
       }
-      // Non-2xx (403/429/5xx) — fall through to kroki.io
-    } catch (_) { /* network error — fall through */ }
+    } catch (_) { /* fall through to kroki.io */ }
   }
 
-  // kroki.io POST: handles all types; for mermaid this is the fallback path
-  const r = await fetch(`https://kroki.io/${type}/png`, {
+  const fmt = SVG_ONLY.has(type) ? 'svg' : 'png';
+  const r = await fetch(`https://kroki.io/${type}/${fmt}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'text/plain', Accept: 'image/png' },
+    headers: { 'Content-Type': 'text/plain' },
     body: code
   });
   const buf = Buffer.from(await r.arrayBuffer());
+  if (fmt === 'svg') {
+    if (!isSvgBuffer(buf)) throw new Error(`Render ${r.status}: ${buf.toString('utf8', 0, 120)}`);
+    return { buf, ext: 'svg' };
+  }
   if (!isPngBuffer(buf)) throw new Error(`Render ${r.status}: ${buf.toString('utf8', 0, 120)}`);
-  return buf;
+  return { buf, ext: 'png' };
 }
 
-// Upload PNG as Confluence attachment (create or update)
-async function uploadAttachment(cfUrl, pageId, filename, pngBuf, auth) {
+// Upload diagram image as Confluence attachment (create or update)
+async function uploadAttachment(cfUrl, pageId, filename, imgBuf, auth) {
   const chk = await fetch(
     `${cfUrl}/wiki/rest/api/content/${pageId}/child/attachment?filename=${encodeURIComponent(filename)}&limit=1`,
     { headers: { Authorization: auth, Accept: 'application/json' } }
   );
   const existing = chk.ok ? (await chk.json()).results?.[0] : null;
 
+  const mimeType = filename.endsWith('.svg') ? 'image/svg+xml' : 'image/png';
   const form = new FormData();
-  form.append('file', new Blob([pngBuf], { type: 'image/png' }), filename);
+  form.append('file', new Blob([imgBuf], { type: mimeType }), filename);
   form.append('comment', 'Auto-rendered by Kroki Diagram Processor');
   form.append('minorEdit', 'true');
 
@@ -264,7 +273,7 @@ module.exports = async (req, res) => {
       const html = page.body.storage.value;
       const diagrams = extractDiagramBlocks(html);
       // Also extract existing attachment filenames from kroki markers so frontend can pre-fill cfFileName
-      const markerRe = /<!-- kroki:(auto-[a-f0-9]+-[a-z0-9]+\.png) -->/g;
+      const markerRe = /<!-- kroki:(auto-[a-f0-9]+-[a-z0-9]+\.(?:png|svg)) -->/g;
       const markers = [];
       let m;
       while ((m = markerRe.exec(html)) !== null) markers.push(m[1]);
@@ -301,8 +310,8 @@ module.exports = async (req, res) => {
     const errors = [];
     await Promise.all(diagrams.map(async d => {
       try {
-        const png = await renderViaKroki(d.type, d.code);
-        await uploadAttachment(cfUrl, pageId, d.filename, png, auth);
+        const { buf } = await renderViaKroki(d.type, d.code);
+        await uploadAttachment(cfUrl, pageId, d.filename, buf, auth);
       } catch (e) {
         errors.push({ idx: d.idx, type: d.type, error: e.message });
       }
