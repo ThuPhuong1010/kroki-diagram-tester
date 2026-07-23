@@ -275,7 +275,7 @@ async function checkAttachmentExists(cfUrl, pageId, filename, auth) {
 // Build the kroki block: image + Edit/Re-sync links.
 // Code block stays in its original position (always visible). This block is inserted AFTER the code.
 function buildKrokiBlock(d, pageId, toolUrl) {
-  const editHref   = `${toolUrl}?type=${d.type}&amp;page=${pageId}&amp;code=${encodeCodeParam(d.code)}`;
+  const editHref   = `${toolUrl}?type=${d.type}&amp;page=${pageId}&amp;idx=${d.idx}&amp;code=${encodeCodeParam(d.code)}`;
   const resyncHref = `${toolUrl}?page=${pageId}&amp;autoprocess=1`;
   return (
     `\n<!-- kroki:${d.filename} -->` +
@@ -362,7 +362,7 @@ function patchPageBody(html, diagrams, pageId, toolUrl) {
 function wrapInExpand(codeBlockHtml) {
   return (
     '<ac:structured-macro ac:name="expand" ac:schema-version="1">' +
-    '<ac:parameter ac:name="title">📋 Xem mã nguồn sơ đồ</ac:parameter>' +
+    '<ac:parameter ac:name="title">View diagram source</ac:parameter>' +
     '<ac:rich-text-body>' +
     '\n' + codeBlockHtml + '\n' +
     '</ac:rich-text-body>' +

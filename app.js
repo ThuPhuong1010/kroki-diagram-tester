@@ -1809,12 +1809,27 @@ cfPageId.addEventListener('input', () => {
     // ── Auto-load diagram code from "Edit in Kroki" link ──────────────────────
     // Priority: ?code= param (embedded, self-contained) > Confluence API fetch > nothing.
     const paramCode = p.get('code');
+    const paramIdx  = p.get('idx');
     if (paramCode && typeof pako !== 'undefined') {
       try {
         const bin   = atob(paramCode.replace(/-/g, '+').replace(/_/g, '/'));
         const bytes = new Uint8Array([...bin].map(c => c.charCodeAt(0)));
         editor.value = pako.inflateRaw(bytes, { to: 'string' });
       } catch (_) { /* decode failed — leave editor as-is */ }
+
+      // If idx is present, enter PDM "update" mode so Save uses PATCH (not embed)
+      // This prevents duplicate images when saving back to the same Confluence page.
+      if (paramIdx !== null && paramPage && HAS_API) {
+        const idxNum = parseInt(paramIdx, 10);
+        if (!isNaN(idxNum)) {
+          state.selectedPageDiagramIdx = idxNum;
+          state.pageDiagramMode = 'update';
+          // Clear default filename so server recomputes from new code hash
+          cfFileName.value = '';
+          saveCreds();
+        }
+      }
+
       scheduleRender();
       return;
     }
