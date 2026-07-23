@@ -86,7 +86,7 @@ app.get('/api/confluence/check/:pageId', async (req, res) => {
 // POST → scan, render, upload, embed all diagrams on the page
 app.all('/api/confluence/process/:pageId', async (req, res) => {
   const handler = require('./api/confluence/process/[pageId]');
-  handler({ method: req.method, query: { pageId: req.params.pageId }, headers: req.headers }, res);
+  handler({ method: req.method, query: { pageId: req.params.pageId }, body: req.body, headers: req.headers }, res);
 });
 
 // ── POST /api/confluence/embed/:pageId ──────────────────────────────────────

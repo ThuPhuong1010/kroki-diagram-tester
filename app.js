@@ -1370,6 +1370,15 @@ document.addEventListener('keydown', e => {
   }
 });
 
+const btnConfluencePanel = $('btnConfluencePanel');
+const outputBar = document.querySelector('.output-bar');
+btnConfluencePanel?.addEventListener('click', () => {
+  const open = outputBar.classList.toggle('confluence-open');
+  btnConfluencePanel.classList.toggle('active', open);
+  btnConfluencePanel.setAttribute('aria-expanded', String(open));
+  btnConfluencePanel.title = open ? 'Close Confluence workspace' : 'Open Confluence workspace';
+});
+
 btnHowTo.addEventListener('click', () => modalOverlay.classList.add('open'));
 modalClose.addEventListener('click', () => modalOverlay.classList.remove('open'));
 modalOverlay.addEventListener('click', e => {

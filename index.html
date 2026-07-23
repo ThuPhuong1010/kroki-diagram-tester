@@ -105,6 +105,10 @@
     <div class="toolbar-right">
       <!-- hidden file input -->
       <input type="file" id="importFileInput" accept=".excalidraw,.drawio,.xml,.mmd,.mermaid,.puml,.d2,.dot,.json" style="display:none">
+      <button class="btn btn-ghost" id="btnTemplates" title="Template gallery — pick a diagram type to start">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Templates
+      </button>
       <button class="btn btn-ghost" id="btnImportFile" title="Import diagram file (.excalidraw, .drawio, .mmd, .puml, .d2)">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
         Import
@@ -117,6 +121,10 @@
       <button class="btn btn-ghost" id="btnClear" title="Clear editor">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
         Clear
+      </button>
+      <button class="btn btn-ghost" id="btnConfluencePanel" title="Open Confluence workspace">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/><circle cx="19" cy="18" r="3"/></svg>
+        Confluence
       </button>
       <button class="btn btn-primary" id="btnRender">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
@@ -239,6 +247,22 @@
           </button>
           <span class="sync-status" id="syncStatus"></span>
         </div>
+      <div class="page-diagram-manager" id="pageDiagramManager">
+        <div class="pdm-head">
+          <div class="pdm-title">
+            <span>Diagrams on this page</span>
+            <span class="pdm-page" id="pdmPageTitle">No page loaded</span>
+          </div>
+          <div class="pdm-actions">
+            <button class="btn btn-ghost btn-sm" id="btnLoadPageDiagrams" type="button">Refresh</button>
+            <button class="btn btn-ghost btn-sm" id="btnAddPageDiagram" type="button">Add diagram</button>
+          </div>
+        </div>
+        <div class="pdm-list" id="pdmList">
+          <span class="pdm-empty">Choose a Confluence page to see its diagrams.</span>
+        </div>
+        <div class="pdm-context" id="pdmContext"></div>
+      </div>
     </div>
 
     <!-- SECONDARY: Download + URL -->
@@ -396,6 +420,38 @@
           Mở trang để embed ↗
         </a>
       </div>
+    </div>
+  </div>
+
+  <!-- ===== TEMPLATE GALLERY MODAL ===== -->
+  <div class="tpl-overlay" id="tplOverlay">
+    <div class="tpl-modal">
+      <div class="tpl-header">
+        <div class="tpl-header-left">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          <span>Template Gallery</span>
+          <span class="tpl-subtitle">Chọn 1 template → load vào editor → chỉnh sửa code → Render</span>
+        </div>
+        <button class="modal-close" id="tplClose">✕</button>
+      </div>
+
+      <!-- Filter tabs -->
+      <div class="tpl-filters" id="tplFilters">
+        <button class="tpl-filter tpl-filter--active" data-filter="all">All</button>
+        <button class="tpl-filter" data-filter="mermaid">Mermaid</button>
+        <button class="tpl-filter" data-filter="plantuml">PlantUML</button>
+        <button class="tpl-filter" data-filter="d2">D2</button>
+        <button class="tpl-filter" data-filter="graphviz">Graphviz</button>
+      </div>
+
+      <!-- How it works banner -->
+      <div class="tpl-howto">
+        <span>✏️ <strong>Cách dùng:</strong> Gõ / sửa code ở <em>editor trái</em> → diagram render tự động ở <em>panel phải</em> → Sync lên Confluence.</span>
+        <span class="tpl-howto-ext">📥 Có file <strong>.drawio</strong> hoặc <strong>.excalidraw</strong>? Dùng nút <strong>Import</strong> để convert tự động.</span>
+      </div>
+
+      <!-- Cards grid -->
+      <div class="tpl-grid" id="tplGrid"></div>
     </div>
   </div>
 
