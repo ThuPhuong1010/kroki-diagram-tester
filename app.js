@@ -1471,10 +1471,9 @@ btnSync.addEventListener('click', async () => {
       btnCopyUrl.disabled = false;
       cfFileName.value = data.filename || fname;
 
-      const cfPageUrl = (cfUrl.value || '').replace(/\/$/, '') ||
-        (data.url ? data.url.split('/wiki/')[0] : '');
-      if (cfPageUrl && pageId) {
-        btnOpenPage.href = `${cfPageUrl}/wiki/pages/viewpage.action?pageId=${pageId}`;
+      const targetUrl = data.url || buildCleanConfluencePageUrl(cfUrl.value, pageId, data.url);
+      if (targetUrl) {
+        btnOpenPage.href = targetUrl;
         btnOpenPage.style.display = '';
       }
 
@@ -1516,10 +1515,9 @@ btnSync.addEventListener('click', async () => {
     btnCopyUrl.disabled = false;
 
     // Show "Open ↗" link to the Confluence page
-    const cfPageUrl = (cfUrl.value || '').replace(/\/$/, '') ||
-      (data.url ? data.url.split('/wiki/')[0] : '');
-    if (cfPageUrl && pageId) {
-      btnOpenPage.href = `${cfPageUrl}/wiki/pages/viewpage.action?pageId=${pageId}`;
+    const targetUrl = data.url || buildCleanConfluencePageUrl(cfUrl.value, pageId, data.url);
+    if (targetUrl) {
+      btnOpenPage.href = targetUrl;
       btnOpenPage.style.display = '';
     }
 
@@ -1625,15 +1623,21 @@ btnProcessPage.addEventListener('click', async () => {
   }
 });
 
+function buildCleanConfluencePageUrl(baseUrlInput, pageId, fullDataUrl) {
+  if (fullDataUrl && typeof fullDataUrl === 'string' && fullDataUrl.startsWith('http')) {
+    return fullDataUrl;
+  }
+  let base = (baseUrlInput || 'https://mvillage.atlassian.net').trim().replace(/\/+$/, '');
+  if (base.endsWith('/wiki')) base = base.slice(0, -5);
+  return `${base}/wiki/pages/viewpage.action?pageId=${pageId}`;
+}
+
 // ─── Sync Result Modal ────────────────────────────────────────────────────────
 function showSyncResult({url, pageName, pageId, filename}) {
   $('srUrl').value = url;
   $('srFilename').textContent = filename;
   $('srPageLink').textContent = pageName || `Page ${pageId}`;
-  const cfBase = (cfUrl.value||'').replace(/\/$/,'') ||
-    (url ? url.split('/wiki/')[0] : '');
-  const pageUrl = cfBase && pageId
-    ? `${cfBase}/wiki/pages/viewpage.action?pageId=${pageId}` : '#';
+  const pageUrl = buildCleanConfluencePageUrl(cfUrl.value, pageId, url);
   $('srPageLink').href  = pageUrl;
   $('srOpenPageBtn').href = pageUrl;
   $('syncResultOverlay').classList.add('open');
