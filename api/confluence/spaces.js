@@ -1,14 +1,30 @@
 'use strict';
 const { getCredentials, authHeader } = require('../_confluence');
 
+async function fetchAllSpaces(cfUrl, auth) {
+  const limit = 100;
+  const all = [];
+  let start = 0;
+  for (let page = 0; page < 100; page++) {
+    const r = await fetch(`${cfUrl}/wiki/rest/api/space?start=${start}&limit=${limit}&type=global`, {
+      headers: { Authorization: auth, Accept: 'application/json' }
+    });
+    const data = await r.json();
+    if (!r.ok) return { status: r.status, data };
+    const results = Array.isArray(data.results) ? data.results : [];
+    all.push(...results);
+    if (results.length < limit || data.size < limit) break;
+    start += results.length;
+  }
+  return { status: 200, data: { ok: true, results: all, start: 0, limit: all.length, size: all.length } };
+}
+
 module.exports = async (req, res) => {
   const { cfUrl, cfEmail, cfToken } = getCredentials();
   if (!cfUrl) return res.status(500).json({ error: 'Server credentials not configured' });
   try {
-    const r = await fetch(`${cfUrl}/wiki/rest/api/space?limit=100&type=global`, {
-      headers: { Authorization: authHeader(cfEmail, cfToken), Accept: 'application/json' }
-    });
-    res.status(r.status).json(await r.json());
+    const { status, data } = await fetchAllSpaces(cfUrl, authHeader(cfEmail, cfToken));
+    res.status(status).json(data);
   } catch (e) {
     res.status(502).json({ error: e.message });
   }
