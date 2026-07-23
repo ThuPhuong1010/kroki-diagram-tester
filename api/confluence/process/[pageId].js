@@ -201,15 +201,70 @@ function isSvgBuffer(buf) {
   return s.includes('<svg') || s.includes('<?xml');
 }
 
-// Render diagram → returns { buf, ext } where ext is 'png' or 'svg'
-// Fallback chain for mermaid: mermaid.ink GET → kroki.io POST
-// SVG_ONLY types always use SVG format from kroki.io
-async function renderViaKroki(type, code) {
+// Fetch with abort timeout — prevents Vercel function from hanging on slow external calls
+function fetchWithTimeout(url, opts = {}, ms = 20000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { ...opts, signal: ctrl.signal }).finally(() => clearTimeout(timer));
+}
+
+// ── Orphaned attachment cleanup ───────────────────────────────────────────────
+
+async function deleteAttachment(cfUrl, attachmentId, auth) {
+  await fetch(`${cfUrl}/wiki/rest/api/content/${attachmentId}`, {
+    method: 'DELETE',
+    headers: { Authorization: auth }
+  }).catch(() => {});
+}
+
+// List all auto-generated attachments on a page (filename starts with "auto-")
+async function listAutoAttachments(cfUrl, pageId, auth) {
+  const results = [];
+  let start = 0;
+  for (;;) {
+    const r = await fetch(
+      `${cfUrl}/wiki/rest/api/content/${pageId}/child/attachment?limit=50&start=${start}`,
+      { headers: { Authorization: auth, Accept: 'application/json' } }
+    ).catch(() => null);
+    if (!r || !r.ok) break;
+    const json = await r.json().catch(() => ({}));
+    for (const a of (json.results || [])) {
+      if ((a.title || '').startsWith('auto-')) results.push({ id: a.id, title: a.title });
+    }
+    if (!json.next) break;
+    start += 50;
+  }
+  return results;
+}
+
+// Delete any auto-* attachment whose filename is NOT in activeFilenames — best-effort, never throws
+async function cleanupOrphanedAttachments(cfUrl, pageId, activeFilenames, auth) {
+  try {
+    const all     = await listAutoAttachments(cfUrl, pageId, auth);
+    const orphans = all.filter(a => !activeFilenames.has(a.title));
+    if (orphans.length) await Promise.all(orphans.map(a => deleteAttachment(cfUrl, a.id, auth)));
+    return orphans.length;
+  } catch (_) { return 0; }
+}
+
+// ── Render via external service ───────────────────────────────────────────────
+// Priority: mermaid.ink (GET, PNG) → kroki.io (GET with zlib-encoded URL, falls back to POST)
+// GET is preferred for kroki.io: same URL = same diagram → benefits from server-side CDN cache.
+// Retry once on transient failures (network blip, 5xx).
+
+// Encode diagram source for kroki.io GET URL: zlib-deflate → base64url
+function encodeForKrokiGet(code) {
+  return zlib.deflateSync(Buffer.from(code, 'utf8'))
+    .toString('base64').replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+async function renderViaKroki(type, code, attempt = 0) {
   if (type === 'mermaid') {
+    // mermaid.ink uses raw base64 (no compression) for its GET endpoint
     const encoded = Buffer.from(code, 'utf8').toString('base64')
       .replace(/\+/g, '-').replace(/\//g, '_');
     try {
-      const r = await fetch(`https://mermaid.ink/img/${encoded}`);
+      const r = await fetchWithTimeout(`https://mermaid.ink/img/${encoded}`, {}, 12000);
       if (r.ok) {
         const buf = Buffer.from(await r.arrayBuffer());
         if (isPngBuffer(buf)) return { buf, ext: 'png' };
@@ -217,19 +272,32 @@ async function renderViaKroki(type, code) {
     } catch (_) { /* fall through to kroki.io */ }
   }
 
-  const fmt = SVG_ONLY.has(type) ? 'svg' : 'png';
-  const r = await fetch(`https://kroki.io/${type}/${fmt}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    body: code
-  });
-  const buf = Buffer.from(await r.arrayBuffer());
-  if (fmt === 'svg') {
-    if (!isSvgBuffer(buf)) throw new Error(`Render ${r.status}: ${buf.toString('utf8', 0, 120)}`);
-    return { buf, ext: 'svg' };
+  const fmt     = SVG_ONLY.has(type) ? 'svg' : 'png';
+  const encoded = encodeForKrokiGet(code);
+  const getUrl  = `https://kroki.io/${type}/${fmt}/${encoded}`;
+
+  try {
+    // Use GET when URL is short enough (< 8 KB); long diagrams fall back to POST
+    const r = getUrl.length < 8000
+      ? await fetchWithTimeout(getUrl, {}, 20000)
+      : await fetchWithTimeout(`https://kroki.io/${type}/${fmt}`, {
+          method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: code
+        }, 20000);
+
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (fmt === 'svg') {
+      if (!isSvgBuffer(buf)) throw new Error(`Render ${r.status}: ${buf.toString('utf8', 0, 120)}`);
+      return { buf, ext: 'svg' };
+    }
+    if (!isPngBuffer(buf)) throw new Error(`Render ${r.status}: ${buf.toString('utf8', 0, 120)}`);
+    return { buf, ext: 'png' };
+  } catch (e) {
+    if (attempt < 1) {
+      await new Promise(ok => setTimeout(ok, 1500));
+      return renderViaKroki(type, code, attempt + 1);
+    }
+    throw e;
   }
-  if (!isPngBuffer(buf)) throw new Error(`Render ${r.status}: ${buf.toString('utf8', 0, 120)}`);
-  return { buf, ext: 'png' };
 }
 
 // Upload diagram image as Confluence attachment (create or update)
@@ -514,8 +582,34 @@ module.exports = async (req, res) => {
       const expectedExt = diagramExt(type);
       let finalFilename = filename || diagramFilename(type, code);
       finalFilename = finalFilename.replace(/\.(png|svg)$/i, '') + `.${expectedExt}`;
+
+      // Capture old attachment filename before overwriting (for orphan cleanup)
+      const preDiagrams  = extractDiagramBlocks(storageHtml);
+      const preCurrent   = preDiagrams.find(d => d.idx === Number(idx));
+      let   oldFilename  = null;
+      if (preCurrent) {
+        const cp  = storageHtml.indexOf(preCurrent.fullMatch);
+        if (cp !== -1) {
+          const ew  = findExpandWrapper(storageHtml, cp, preCurrent.fullMatch.length);
+          const img = findKrokiImage(storageHtml, ew ? ew.end : cp + preCurrent.fullMatch.length);
+          if (img) oldFilename = img.filename;
+        }
+      }
+
       const { buf } = await renderViaKroki(type, code);
       await uploadAttachment(cfUrl, pageId, finalFilename, buf, auth);
+
+      // Delete old attachment if code changed (new hash = new filename)
+      if (oldFilename && oldFilename !== finalFilename) {
+        const chkR = await fetch(
+          `${cfUrl}/wiki/rest/api/content/${pageId}/child/attachment?filename=${encodeURIComponent(oldFilename)}&limit=1`,
+          { headers: { Authorization: auth, Accept: 'application/json' } }
+        ).catch(() => null);
+        if (chkR?.ok) {
+          const oldAtt = (await chkR.json().catch(() => ({}))).results?.[0];
+          if (oldAtt) deleteAttachment(cfUrl, oldAtt.id, auth); // fire-and-forget
+        }
+      }
 
       const { body: newBody, changed } = patchOneDiagram(
         storageHtml,
@@ -584,6 +678,10 @@ module.exports = async (req, res) => {
         errors.push({ idx: d.idx, type: d.type, error: e.message });
       }
     }));
+
+    // 3b. Remove orphaned auto-* attachments (old code hash → old filename no longer referenced)
+    const activeFilenames = new Set(diagrams.map(d => d.filename));
+    cleanupOrphanedAttachments(cfUrl, pageId, activeFilenames, auth); // fire-and-forget
 
     // 4. Patch page body: add image + "Edit in Kroki" link (only for successfully uploaded)
     const toolUrl  = toolUrlFromReq(req);
