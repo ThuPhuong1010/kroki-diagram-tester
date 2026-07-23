@@ -2135,17 +2135,7 @@ cfPageId.addEventListener('input', () => {
   if (paramType || paramPage || paramTemplate || paramCode) {
     if (paramType) diagramType.value = paramType;
     if (paramPage) cfPageId.value    = paramPage;
-    if (paramCode) {
-      try {
-        editor.value = decodeURIComponent(escape(atob(paramCode.replace(/-/g, '+').replace(/_/g, '/'))));
-      } catch {
-        try {
-          editor.value = decodeURIComponent(paramCode);
-        } catch {
-          editor.value = paramCode;
-        }
-      }
-    } else if (paramTemplate) {
+    if (paramTemplate && !paramCode) {
       const key = paramType ? `${paramType}-${paramTemplate}` : paramTemplate;
       const tpl = TEMPLATES[key] || TEMPLATES[paramTemplate];
       if (tpl) { editor.value = tpl.code.trimStart(); if (!paramType) diagramType.value = tpl.type; }
@@ -2204,7 +2194,10 @@ cfPageId.addEventListener('input', () => {
       // 2. Try Base64 decode
       if (!decoded && !paramCode.includes(' ') && !paramCode.includes('\n') && paramCode.length > 20) {
         try {
-          decoded = decodeURIComponent(escape(atob(paramCode.replace(/-/g, '+').replace(/_/g, '/'))));
+          const base64Str = atob(paramCode.replace(/-/g, '+').replace(/_/g, '/'));
+          if (base64Str && base64Str.length > 0) {
+            decoded = decodeURIComponent(escape(base64Str));
+          }
         } catch (_) {}
       }
 
