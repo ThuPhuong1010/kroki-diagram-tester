@@ -921,8 +921,31 @@ async function renderDiagram() {
 
         const BpmnClass = window.BpmnJS || window.BpmnJSViewer;
         state.bpmnViewer = new BpmnClass({
-          container: container
+          container: container,
+          keyboard: { bindTo: window }
         });
+
+        // Sync visual canvas edits back to code editor and Kroki URLs
+        try {
+          state.bpmnViewer.on('commandStack.changed', async () => {
+            try {
+              const { xml } = await state.bpmnViewer.saveXML({ format: true });
+              if (xml && editor.value !== xml) {
+                editor.isCanvasUpdating = true;
+                editor.value = xml;
+                updateEditorStats();
+                updateSyncBtn();
+                updateModifiedBadge();
+                const url = buildDiagramUrl(xml, 'bpmn', outputFormat.value);
+                state.currentUrl = url;
+                confluenceUrl.value = url;
+                btnCopyUrl.disabled = false;
+                btnDownloadConfluence.disabled = false;
+                setTimeout(() => { editor.isCanvasUpdating = false; }, 150);
+              }
+            } catch (err) {}
+          });
+        } catch (e) {}
 
         await state.bpmnViewer.importXML(effectiveXml);
 
@@ -1163,7 +1186,12 @@ document.addEventListener('mouseup', () => {
 });
 
 // ─── Editor Events ────────────────────────────────────────────────────────────
-editor.addEventListener('input', () => { scheduleRender(); autoSaveToLibrary(); updateEditorStats(); });
+editor.addEventListener('input', () => {
+  if (editor.isCanvasUpdating) return;
+  scheduleRender();
+  autoSaveToLibrary();
+  updateEditorStats();
+});
 
 // ─── Editor Stats (line / char count) ─────────────────────────────────────────
 function updateEditorStats() {
