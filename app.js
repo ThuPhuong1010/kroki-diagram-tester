@@ -2130,10 +2130,22 @@ cfPageId.addEventListener('input', () => {
   const paramType     = p.get('type');
   const paramPage     = p.get('page');
   const paramTemplate = p.get('template');
-  if (paramType || paramPage || paramTemplate) {
+  const paramCode     = p.get('code');
+
+  if (paramType || paramPage || paramTemplate || paramCode) {
     if (paramType) diagramType.value = paramType;
     if (paramPage) cfPageId.value    = paramPage;
-    if (paramTemplate) {
+    if (paramCode) {
+      try {
+        editor.value = decodeURIComponent(escape(atob(paramCode.replace(/-/g, '+').replace(/_/g, '/'))));
+      } catch {
+        try {
+          editor.value = decodeURIComponent(paramCode);
+        } catch {
+          editor.value = paramCode;
+        }
+      }
+    } else if (paramTemplate) {
       const key = paramType ? `${paramType}-${paramTemplate}` : paramTemplate;
       const tpl = TEMPLATES[key] || TEMPLATES[paramTemplate];
       if (tpl) { editor.value = tpl.code.trimStart(); if (!paramType) diagramType.value = tpl.type; }
