@@ -2188,7 +2188,7 @@ cfPageId.addEventListener('input', () => {
     if (paramCode) {
       let decoded = null;
 
-      // 1. Try Zlib inflate / inflateRaw if code starts with zlib header prefix (eN or eJ)
+      // 1. Try Zlib inflate / inflateRaw if code starts with zlib header prefix (eN or eJ from Kroki / pako.deflate)
       if ((paramCode.startsWith('eN') || paramCode.startsWith('eJ')) && typeof pako !== 'undefined') {
         try {
           const bin   = atob(paramCode.replace(/-/g, '+').replace(/_/g, '/'));
@@ -2201,17 +2201,32 @@ cfPageId.addEventListener('input', () => {
         } catch (_) {}
       }
 
-      // 2. Try Base64 decode
-      if (!decoded && !paramCode.includes(' ') && !paramCode.includes('\n') && paramCode.length > 20) {
+      // 2. Check if raw string is already plain XML or Diagram code
+      if (!decoded && (
+        paramCode.startsWith('<') ||
+        paramCode.startsWith('<?xml') ||
+        paramCode.startsWith('flowchart') ||
+        paramCode.startsWith('sequenceDiagram') ||
+        paramCode.startsWith('@startuml') ||
+        paramCode.startsWith('digraph') ||
+        paramCode.startsWith('direction:') ||
+        paramCode.includes('\n') ||
+        paramCode.includes(' ')
+      )) {
+        decoded = paramCode;
+      }
+
+      // 3. Try URL Component decode
+      if (!decoded) {
         try {
-          const base64Str = atob(paramCode.replace(/-/g, '+').replace(/_/g, '/'));
-          if (base64Str && base64Str.length > 0) {
-            decoded = decodeURIComponent(escape(base64Str));
+          const urlDecoded = decodeURIComponent(paramCode);
+          if (urlDecoded.startsWith('<') || urlDecoded.startsWith('<?xml') || urlDecoded.includes('\n')) {
+            decoded = urlDecoded;
           }
         } catch (_) {}
       }
 
-      // 3. Fallback to standard URL decoded parameter string
+      // 4. Fallback
       if (!decoded) {
         decoded = paramCode;
       }
