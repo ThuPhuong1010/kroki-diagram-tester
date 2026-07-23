@@ -2187,29 +2187,33 @@ cfPageId.addEventListener('input', () => {
     const paramIdx  = p.get('idx');
     if (paramCode) {
       let decoded = null;
-      // 1. Try Kroki Zlib inflate
-      if (typeof pako !== 'undefined') {
+
+      // 1. Try Zlib inflate / inflateRaw if code starts with zlib header prefix (eN or eJ)
+      if ((paramCode.startsWith('eN') || paramCode.startsWith('eJ')) && typeof pako !== 'undefined') {
         try {
           const bin   = atob(paramCode.replace(/-/g, '+').replace(/_/g, '/'));
           const bytes = new Uint8Array([...bin].map(c => c.charCodeAt(0)));
-          decoded = pako.inflateRaw(bytes, { to: 'string' });
+          try {
+            decoded = new TextDecoder().decode(pako.inflate(bytes));
+          } catch (_) {
+            decoded = pako.inflateRaw(bytes, { to: 'string' });
+          }
         } catch (_) {}
       }
+
       // 2. Try Base64 decode
-      if (!decoded) {
+      if (!decoded && !paramCode.includes(' ') && !paramCode.includes('\n') && paramCode.length > 20) {
         try {
           decoded = decodeURIComponent(escape(atob(paramCode.replace(/-/g, '+').replace(/_/g, '/'))));
         } catch (_) {}
       }
-      // 3. Try URL component decode
+
+      // 3. Fallback to standard URL decoded parameter string
       if (!decoded) {
-        try {
-          decoded = decodeURIComponent(paramCode);
-        } catch (_) {}
+        decoded = paramCode;
       }
-      if (decoded) {
-        editor.value = decoded;
-      }
+
+      editor.value = decoded;
 
       // If idx is present, enter PDM "update" mode so Save uses PATCH (not embed)
       // This prevents duplicate images when saving back to the same Confluence page.
