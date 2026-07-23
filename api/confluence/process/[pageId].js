@@ -44,9 +44,16 @@ function diagramFilename(type, code) {
 //   2. ac:structured-macro name="mermaid|mermaid-cloud|plantuml|..."       (native diagram macros)
 //   3. ac:adf-extension with extensionKey containing a diagram type         (Confluence Cloud ADF)
 function extractDiagramBlocks(html) {
-  const results = [];
-  const bodyRe  = /<ac:plain-text-body><!\[CDATA\[([\s\S]*?)\]\]><\/ac:plain-text-body>/i;
+  const results    = [];
+  const seenBlocks = new Set(); // deduplicate: same fullMatch from different patterns
+  const bodyRe     = /<ac:plain-text-body><!\[CDATA\[([\s\S]*?)\]\]><\/ac:plain-text-body>/i;
   let idx = 0;
+
+  function push(entry) {
+    if (seenBlocks.has(entry.fullMatch)) return; // skip duplicates across patterns
+    seenBlocks.add(entry.fullMatch);
+    results.push({ ...entry, idx: idx++ });
+  }
 
   // ── Pattern 1: Standard "Code Block" macro ───────────────────────────────
   const codeRe = /<ac:structured-macro(?:[^>]*)ac:name="code"(?:[^>]*)>([\s\S]*?)<\/ac:structured-macro>/g;
@@ -68,7 +75,7 @@ function extractDiagramBlocks(html) {
       continue;
     }
     if (!type) continue;
-    results.push({ idx: idx++, type, code, filename: diagramFilename(type, code), fullMatch: m[0] });
+    push({ type, code, filename: diagramFilename(type, code), fullMatch: m[0] });
   }
 
   // ── Pattern 2: Native diagram macros (mermaid-cloud, mermaid, plantuml…) ─
@@ -84,16 +91,16 @@ function extractDiagramBlocks(html) {
     if (!bm) continue;
     const code = bm[1].trim();
     if (!code) continue;
-    results.push({ idx: idx++, type, code, filename: diagramFilename(type, code), fullMatch: m[0] });
+    push({ type, code, filename: diagramFilename(type, code), fullMatch: m[0] });
   }
 
   // ── Pattern 3: ADF Extension (Confluence Cloud newer editor) ─────────────
   // <ac:adf-extension>...<ac:adf-attribute key="extensionKey">mermaid</...>
   // ...<ac:adf-attribute key="text">code here</...>...</ac:adf-extension>
-  const adfRe  = /<ac:adf-extension>([\s\S]*?)<\/ac:adf-extension>/g;
-  const extKeyRe = /key="extensionKey"[^>]*>([\w-]+)<\/ac:adf-attribute>/i;
+  const adfRe     = /<ac:adf-extension>([\s\S]*?)<\/ac:adf-extension>/g;
+  const extKeyRe  = /key="extensionKey"[^>]*>([\w-]+)<\/ac:adf-attribute>/i;
   const adfTextRe = /key="text"[^>]*>([\s\S]*?)<\/ac:adf-attribute>/i;
-  const adfCdataRe = /<!\[CDATA\[([\s\S]*?)\]\]>/i;
+  const adfCdataRe = /\[CDATA\[([\s\S]*?)\]\]>/i;
   while ((m = adfRe.exec(html)) !== null) {
     const inner   = m[1];
     const keyM    = extKeyRe.exec(inner);
@@ -110,29 +117,45 @@ function extractDiagramBlocks(html) {
     }
     if (!code) code = (() => { const cdM = adfCdataRe.exec(inner); return cdM ? cdM[1].trim() : ''; })();
     if (!code) continue;
-    results.push({ idx: idx++, type, code, filename: diagramFilename(type, code), fullMatch: m[0] });
+    push({ type, code, filename: diagramFilename(type, code), fullMatch: m[0] });
   }
 
   return results;
 }
 
-// Render diagram — mermaid.ink for Mermaid (avoids Puppeteer crashes on kroki.io),
-// kroki.io POST for everything else.
+function isPngBuffer(buf) {
+  return buf.length > 4 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+}
+
+// Render diagram via fallback chain:
+//   Mermaid  → mermaid.ink (GET, base64url) → kroki.io POST (fallback)
+//   Others   → kroki.io POST only
+// mermaid.ink doesn't need Accept header; its /img/ endpoint always returns PNG.
+// Falls back to kroki.io if mermaid.ink is unreachable or returns non-PNG
+// (e.g. Cloudflare blocking server IPs, rate limit, or unexpected SVG response).
 async function renderViaKroki(type, code) {
-  let r;
   if (type === 'mermaid') {
-    const encoded = Buffer.from(code, 'utf8').toString('base64');
-    r = await fetch(`https://mermaid.ink/img/${encoded}`, { headers: { Accept: 'image/png' } });
-  } else {
-    r = await fetch(`https://kroki.io/${type}/png`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain', Accept: 'image/png' },
-      body: code
-    });
+    const encoded = Buffer.from(code, 'utf8').toString('base64')
+      .replace(/\+/g, '-').replace(/\//g, '_');
+    try {
+      const r = await fetch(`https://mermaid.ink/img/${encoded}`);
+      if (r.ok) {
+        const buf = Buffer.from(await r.arrayBuffer());
+        if (isPngBuffer(buf)) return buf;
+        // Got 200 but not PNG (e.g. SVG or HTML error page) — fall through
+      }
+      // Non-2xx (403/429/5xx) — fall through to kroki.io
+    } catch (_) { /* network error — fall through */ }
   }
+
+  // kroki.io POST: handles all types; for mermaid this is the fallback path
+  const r = await fetch(`https://kroki.io/${type}/png`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain', Accept: 'image/png' },
+    body: code
+  });
   const buf = Buffer.from(await r.arrayBuffer());
-  const isPng = buf.length > 4 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
-  if (!isPng) throw new Error(`Render ${r.status}: ${buf.toString('utf8', 0, 120)}`);
+  if (!isPngBuffer(buf)) throw new Error(`Render ${r.status}: ${buf.toString('utf8', 0, 120)}`);
   return buf;
 }
 
@@ -279,8 +302,14 @@ module.exports = async (req, res) => {
     }));
 
     // 4. Patch page body: add image + "Edit in Kroki" link (only for successfully uploaded)
-    const toolUrl  = process.env.TOOL_URL ||
-      `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers['x-forwarded-host'] || req.headers.host || 'mvldiagram.vercel.app'}`;
+    const toolUrl  = (() => {
+      if (process.env.TOOL_URL) return process.env.TOOL_URL.replace(/\/$/, '');
+      // Sanitize forwarded headers to prevent injection into Confluence page body
+      const proto = /^https?$/.test(req.headers['x-forwarded-proto']) ? req.headers['x-forwarded-proto'] : 'https';
+      const host  = (req.headers['x-forwarded-host'] || req.headers.host || 'mvldiagram.vercel.app')
+        .replace(/[^a-zA-Z0-9.:\-]/g, '');
+      return `${proto}://${host}`;
+    })();
     const uploaded = diagrams.filter(d => !errors.find(e => e.idx === d.idx));
     const { body: newBody, changed } = patchPageBody(storageHtml, uploaded, pageId, toolUrl);
 
