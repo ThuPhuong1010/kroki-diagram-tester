@@ -50,6 +50,64 @@ function diagramFilename(type, code) {
   return `auto-${hash}-${type}.${diagramExt(type)}`;
 }
 
+function stripStorageHtml(html) {
+  return (html || '')
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function diagramContext(html, fullMatch) {
+  const pos = html.indexOf(fullMatch);
+  if (pos === -1) return { contextBefore: '', contextAfter: '' };
+  return {
+    contextBefore: stripStorageHtml(html.slice(Math.max(0, pos - 900), pos)).slice(-260),
+    contextAfter: stripStorageHtml(html.slice(pos + fullMatch.length, pos + fullMatch.length + 900)).slice(0, 260)
+  };
+}
+
+function markerForCodeBlock(html, fullMatch) {
+  const GEN_END = '<!-- /kroki -->';
+  const pos = html.indexOf(fullMatch);
+  if (pos === -1) return null;
+
+  const before = html.slice(0, pos);
+  const openIdx = before.lastIndexOf('<!-- kroki:');
+  if (openIdx !== -1) {
+    const closeIdx = html.indexOf(GEN_END, openIdx);
+    if (closeIdx !== -1 && closeIdx > pos) {
+      const marker = /^<!-- kroki:([^>]+?) -->/.exec(html.slice(openIdx, openIdx + 120));
+      if (marker) return marker[1];
+    }
+  }
+
+  const after = html.slice(pos + fullMatch.length, pos + fullMatch.length + 500);
+  const marker = /<!-- kroki:([^>]+?) -->/.exec(after);
+  return marker ? marker[1] : null;
+}
+
+function buildDiagramMetadata(html, diagrams) {
+  return diagrams.map(d => {
+    const marker = markerForCodeBlock(html, d.fullMatch);
+    return {
+      idx: d.idx,
+      type: d.type,
+      code: d.code,
+      filename: marker || d.filename,
+      generatedFilename: d.filename,
+      marker,
+      hasKrokiBlock: !!marker,
+      ...diagramContext(html, d.fullMatch)
+    };
+  });
+}
+
 // Extract all diagram code blocks from Confluence storage format HTML.
 // Handles three macro patterns:
 //   1. ac:structured-macro name="code" with language=mermaid/plantuml/etc  (standard Code Block)
@@ -214,10 +272,9 @@ async function checkAttachmentExists(cfUrl, pageId, filename, auth) {
   return !!(json?.results?.[0]);
 }
 
-// Build the full kroki block: image + links + expand(code source).
-// Code block is consumed (moved inside expand so page stays clean).
+// Build the kroki block: image + Edit/Re-sync links.
+// Code block stays in its original position (always visible). This block is inserted AFTER the code.
 function buildKrokiBlock(d, pageId, toolUrl) {
-  const GEN_END    = '<!-- /kroki -->';
   const editHref   = `${toolUrl}?type=${d.type}&amp;page=${pageId}&amp;code=${encodeCodeParam(d.code)}`;
   const resyncHref = `${toolUrl}?page=${pageId}&amp;autoprocess=1`;
   return (
@@ -227,24 +284,19 @@ function buildKrokiBlock(d, pageId, toolUrl) {
       `<a href="${editHref}" rel="nofollow">✏️ Edit in Kroki ↗</a>` +
       ` &nbsp;·&nbsp; <a href="${resyncHref}" rel="nofollow">🔄 Re-sync</a>` +
     `</p>` +
-    `\n<ac:structured-macro ac:name="expand" ac:schema-version="1">` +
-      `<ac:parameter ac:name="title">📝 Source code (${d.type})</ac:parameter>` +
-      `<ac:rich-text-body>${d.fullMatch}</ac:rich-text-body>` +
-    `</ac:structured-macro>` +
-    `\n${GEN_END}`
+    `\n<!-- /kroki -->`
   );
 }
 
-// Patch Confluence storage HTML: wrap each code block in an expand macro,
-// embed image above it, add Edit + Re-sync links.
+// Patch Confluence storage HTML: insert rendered image AFTER each code block.
+// Code block stays in place so both source and image are always visible.
 //
-// Idempotency — 3 cases handled:
-//   1. Code block is INSIDE an existing kroki block (second+ run after wrapping):
-//      search backwards for <!-- kroki: --> enclosing the code pos.
-//      Same hash → skip. Different hash → replace whole kroki block.
-//   2. Code block is BEFORE an old-style kroki marker (pre-expand format, migration):
-//      search 500 chars forward. Replace from code block start to <!-- /kroki --> end.
-//   3. First time → consume code block, insert full kroki block in its place.
+// Idempotency — 3 cases:
+//   1. Code block is INSIDE an existing kroki block (old expand format → migrate):
+//      extract code back out, place it before new kroki block (image only).
+//   2. Kroki marker already follows code block (correct format):
+//      same hash → skip; different hash → replace marker only.
+//   3. First time → insert kroki block AFTER code block.
 function patchPageBody(html, diagrams, pageId, toolUrl) {
   let body    = html;
   let changed = false;
@@ -257,44 +309,126 @@ function patchPageBody(html, diagrams, pageId, toolUrl) {
     const codePos = body.indexOf(d.fullMatch);
     if (codePos === -1) continue;
 
-    // ── Case 1: code block already inside a kroki block (wrapped) ─────────────
-    const beforeCode    = body.slice(0, codePos);
-    const krokiOpenIdx  = beforeCode.lastIndexOf('<!-- kroki:');
+    // ── Case 1: code is INSIDE a kroki block (old expand format → migrate) ────
+    const beforeCode   = body.slice(0, codePos);
+    const krokiOpenIdx = beforeCode.lastIndexOf('<!-- kroki:');
     if (krokiOpenIdx !== -1) {
       const krokiCloseIdx = body.indexOf(GEN_END, krokiOpenIdx);
       if (krokiCloseIdx !== -1 && krokiCloseIdx > codePos) {
-        // code IS inside this kroki block
-        if (body.slice(krokiOpenIdx, krokiOpenIdx + genStart.length) === genStart) {
-          continue; // same hash → no change
-        }
-        // different hash → replace the whole block
-        body = body.slice(0, krokiOpenIdx) + newBlock.trimStart()
+        // Restore code block before the image, removing the expand wrapper
+        body = body.slice(0, krokiOpenIdx)
+             + d.fullMatch                                       // code block visible
+             + newBlock                                          // image + links after
              + body.slice(krokiCloseIdx + GEN_END.length);
         changed = true;
         continue;
       }
     }
 
-    // ── Case 2: old-style marker immediately after code block (pre-expand) ────
-    const insertAt      = codePos + d.fullMatch.length;
-    const zone          = body.slice(insertAt, insertAt + 500);
-    const oldMarkerIdx  = zone.indexOf('<!-- kroki:');
-    if (oldMarkerIdx !== -1 && oldMarkerIdx < 400) {
-      const absOldStart = insertAt + oldMarkerIdx;
-      const oldClose    = body.indexOf(GEN_END, absOldStart);
-      if (oldClose !== -1) {
-        // migrate: replace from code block start through kroki end
-        body = body.slice(0, codePos) + newBlock + body.slice(oldClose + GEN_END.length);
+    const insertAt = codePos + d.fullMatch.length;
+
+    // ── Case 2: kroki marker follows code block (correct format) ──────────────
+    const zone      = body.slice(insertAt, insertAt + 500);
+    const markerIdx = zone.indexOf('<!-- kroki:');
+    if (markerIdx !== -1 && markerIdx < 400) {
+      const absStart = insertAt + markerIdx;
+      if (body.slice(absStart, absStart + genStart.length) === genStart) {
+        continue; // same hash → already up to date
+      }
+      // Different hash (code was edited) → replace kroki block only
+      const endIdx = body.indexOf(GEN_END, absStart);
+      if (endIdx !== -1) {
+        body = body.slice(0, absStart) + newBlock.trimStart() + body.slice(endIdx + GEN_END.length);
         changed = true;
         continue;
       }
     }
 
-    // ── Case 3: first time → consume code block, insert wrapped block ─────────
-    body = body.slice(0, codePos) + newBlock + body.slice(codePos + d.fullMatch.length);
+    // ── Case 3: first time → insert kroki block after code block ──────────────
+    body = body.slice(0, insertAt) + newBlock + body.slice(insertAt);
     changed = true;
   }
   return { body, changed };
+}
+
+function codeBlockMacro(type, code) {
+  const lang = DIAGRAM_TYPES.has(type) ? type : 'text';
+  return (
+    `<ac:structured-macro ac:name="code" ac:schema-version="1">` +
+      `<ac:parameter ac:name="language">${lang}</ac:parameter>` +
+      `<ac:plain-text-body><![CDATA[${code}]]></ac:plain-text-body>` +
+    `</ac:structured-macro>`
+  );
+}
+
+function patchOneDiagram(html, target, pageId, toolUrl) {
+  const replacement = {
+    idx: typeof target.idx === 'number' ? target.idx : -1,
+    type: target.type,
+    code: target.code,
+    filename: target.filename || diagramFilename(target.type, target.code),
+    fullMatch: codeBlockMacro(target.type, target.code)
+  };
+  const newBlock = buildKrokiBlock(replacement, pageId, toolUrl).trimStart();
+  const GEN_END = '<!-- /kroki -->';
+
+  if (target.mode === 'add' || target.idx === null || target.idx === undefined || target.idx < 0) {
+    // Add: append code block + image at end of page
+    return { body: html + '\n' + replacement.fullMatch + newBlock, changed: true, filename: replacement.filename };
+  }
+
+  const diagrams = extractDiagramBlocks(html);
+  const current = diagrams.find(d => d.idx === Number(target.idx));
+  if (!current) throw new Error(`Diagram index ${target.idx} not found on page`);
+  const codePos = html.indexOf(current.fullMatch);
+  if (codePos === -1) throw new Error('Diagram source block not found on page');
+
+  const beforeCode = html.slice(0, codePos);
+  const krokiOpenIdx = beforeCode.lastIndexOf('<!-- kroki:');
+  if (krokiOpenIdx !== -1) {
+    const krokiCloseIdx = html.indexOf(GEN_END, krokiOpenIdx);
+    if (krokiCloseIdx !== -1 && krokiCloseIdx > codePos) {
+      // Code was inside an old expand block → replace entire block with new code + new image
+      return {
+        body: html.slice(0, krokiOpenIdx) + replacement.fullMatch + newBlock + html.slice(krokiCloseIdx + GEN_END.length),
+        changed: true,
+        filename: replacement.filename
+      };
+    }
+  }
+
+  // Code is before a kroki marker (correct format) → replace old code + old marker
+  const insertAt = codePos + current.fullMatch.length;
+  const zone = html.slice(insertAt, insertAt + 500);
+  const markerIdx = zone.indexOf('<!-- kroki:');
+  if (markerIdx !== -1 && markerIdx < 400) {
+    const absStart = insertAt + markerIdx;
+    const endIdx = html.indexOf(GEN_END, absStart);
+    if (endIdx !== -1) {
+      return {
+        body: html.slice(0, codePos) + replacement.fullMatch + newBlock + html.slice(endIdx + GEN_END.length),
+        changed: true,
+        filename: replacement.filename
+      };
+    }
+  }
+
+  // No kroki marker yet → replace old code with new code, insert image after
+  return {
+    body: html.slice(0, codePos) + replacement.fullMatch + newBlock + html.slice(codePos + current.fullMatch.length),
+    changed: true,
+    filename: replacement.filename
+  };
+}
+
+function toolUrlFromReq(req) {
+  if (process.env.TOOL_URL) return process.env.TOOL_URL.replace(/\/$/, '');
+  const host = (req.headers['x-forwarded-host'] || req.headers.host || 'mvldiagram.vercel.app')
+    .replace(/[^a-zA-Z0-9.:\-]/g, '');
+  const proto = /^https?$/.test(req.headers['x-forwarded-proto'])
+    ? req.headers['x-forwarded-proto']
+    : host.startsWith('localhost') ? 'http' : 'https';
+  return `${proto}://${host}`;
 }
 
 // ─── Main handler ─────────────────────────────────────────────────────────────
@@ -310,22 +444,73 @@ module.exports = async (req, res) => {
   if (req.method === 'GET') {
     try {
       const pageRes = await fetch(
-        `${cfUrl}/wiki/rest/api/content/${pageId}?expand=body.storage`,
+        `${cfUrl}/wiki/rest/api/content/${pageId}?expand=body.storage,version,title`,
         { headers: { Authorization: auth, Accept: 'application/json' } }
       );
       if (!pageRes.ok) return res.status(pageRes.status).json({ error: `Confluence ${pageRes.status}` });
       const page = await pageRes.json();
       const html = page.body.storage.value;
       const diagrams = extractDiagramBlocks(html);
-      // Also extract existing attachment filenames from kroki markers so frontend can pre-fill cfFileName
-      const markerRe = /<!-- kroki:(auto-[a-f0-9]+-[a-z0-9]+\.(?:png|svg)) -->/g;
-      const markers = [];
-      let m;
-      while ((m = markerRe.exec(html)) !== null) markers.push(m[1]);
       return res.json({
         ok: true,
-        diagrams: diagrams.map((d, i) => ({ type: d.type, code: d.code, filename: markers[i] || d.filename }))
+        pageId,
+        pageTitle: page.title,
+        pageVersion: page.version?.number || null,
+        diagrams: buildDiagramMetadata(html, diagrams)
       });
+    } catch (e) {
+      return res.status(502).json({ error: e.message });
+    }
+  }
+
+  if (req.method === 'PATCH') {
+    const { idx, mode = 'update', type = 'mermaid', code = '', filename = '' } = req.body || {};
+    if (!code.trim()) return res.status(400).json({ error: 'Missing diagram code' });
+
+    try {
+      const pageRes = await fetch(
+        `${cfUrl}/wiki/rest/api/content/${pageId}?expand=body.storage,version,title`,
+        { headers: { Authorization: auth, Accept: 'application/json' } }
+      );
+      if (!pageRes.ok) return res.status(pageRes.status).json({ error: `Confluence ${pageRes.status}` });
+      const page = await pageRes.json();
+      const storageHtml = page.body.storage.value;
+      const version = page.version.number;
+      const title = page.title;
+
+      const finalFilename = filename || diagramFilename(type, code);
+      const { buf } = await renderViaKroki(type, code);
+      await uploadAttachment(cfUrl, pageId, finalFilename, buf, auth);
+
+      const { body: newBody, changed } = patchOneDiagram(
+        storageHtml,
+        { idx, mode, type, code, filename: finalFilename },
+        pageId,
+        toolUrlFromReq(req)
+      );
+
+      if (changed) {
+        const putRes = await fetch(`${cfUrl}/wiki/rest/api/content/${pageId}`, {
+          method: 'PUT',
+          headers: { Authorization: auth, 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({
+            version: { number: version + 1 },
+            title,
+            type: 'page',
+            body: { storage: { value: newBody, representation: 'storage' } }
+          })
+        });
+        if (!putRes.ok) {
+          const txt = await putRes.text().catch(() => '');
+          return res.status(putRes.status).json({
+            error: `Page update failed ${putRes.status}: ${txt.slice(0, 200)}`,
+            uploaded: true
+          });
+        }
+      }
+
+      const stableUrl = `${cfUrl}/wiki/download/attachments/${pageId}/${finalFilename}`;
+      return res.json({ ok: true, mode, updated: mode !== 'add', filename: finalFilename, url: stableUrl });
     } catch (e) {
       return res.status(502).json({ error: e.message });
     }
@@ -366,16 +551,7 @@ module.exports = async (req, res) => {
     }));
 
     // 4. Patch page body: add image + "Edit in Kroki" link (only for successfully uploaded)
-    const toolUrl  = (() => {
-      if (process.env.TOOL_URL) return process.env.TOOL_URL.replace(/\/$/, '');
-      // Sanitize forwarded headers to prevent injection into Confluence page body
-      const host = (req.headers['x-forwarded-host'] || req.headers.host || 'mvldiagram.vercel.app')
-        .replace(/[^a-zA-Z0-9.:\-]/g, '');
-      const proto = /^https?$/.test(req.headers['x-forwarded-proto'])
-        ? req.headers['x-forwarded-proto']
-        : host.startsWith('localhost') ? 'http' : 'https';
-      return `${proto}://${host}`;
-    })();
+    const toolUrl  = toolUrlFromReq(req);
     const uploaded = diagrams.filter(d => !errors.find(e => e.idx === d.idx));
     const { body: newBody, changed } = patchPageBody(storageHtml, uploaded, pageId, toolUrl);
 

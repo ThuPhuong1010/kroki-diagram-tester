@@ -571,7 +571,12 @@ const state = {
   currentUrl: '',
   zoom: 1,
   renderTimer: null,
-  isRendering: false
+  isRendering: false,
+  pageDiagrams: [],
+  pageTitle: '',
+  pageVersion: null,
+  selectedPageDiagramIdx: null,
+  pageDiagramMode: null
 };
 
 // API available when NOT on GitHub Pages (works on localhost, Railway, any custom domain)
@@ -617,6 +622,11 @@ const btnOpenPage       = $('btnOpenPage');
 const cfPageIdHint      = $('cfPageIdHint');
 const syncModifiedBadge = $('syncModifiedBadge');
 const editorStats       = $('editorStats');
+const btnLoadPageDiagrams = $('btnLoadPageDiagrams');
+const btnAddPageDiagram   = $('btnAddPageDiagram');
+const pdmPageTitle        = $('pdmPageTitle');
+const pdmList             = $('pdmList');
+const pdmContext          = $('pdmContext');
 
 // Tracks pageName/spaceKey picked via the page picker (cleared on new browse)
 let pickedPageMeta = { pageName: '', spaceKey: '' };
@@ -914,6 +924,119 @@ outputFormat.addEventListener('change', () => {
 });
 
 // ─── Confluence Sync ──────────────────────────────────────────────────────────
+// Page Diagram Manager
+function currentPageId() {
+  return extractPageId(cfPageId.value.trim()) || cfPageId.value.trim();
+}
+
+function shortNameFromDiagram(d, i) {
+  if (d.filename) return d.filename.replace(/^auto-[a-f0-9]+-/, '').replace(/\.(png|svg)$/i, '');
+  const first = (d.code || '').split('\n').find(Boolean) || `${d.type} diagram`;
+  return first.replace(/[@{}[\]()]/g, '').slice(0, 42) || `Diagram ${i + 1}`;
+}
+
+function renderPageDiagramManager() {
+  if (!pdmList) return;
+  const pid = extractPageId(cfPageId.value.trim()) || cfPageId.value.trim();
+  pdmPageTitle.textContent = state.pageTitle || (pid ? `Page ${pid}` : 'No page loaded');
+
+  if (!state.pageDiagrams.length) {
+    pdmList.innerHTML = '<span class="pdm-empty">No diagrams loaded for this page.</span>';
+    pdmContext.innerHTML = '';
+    return;
+  }
+
+  pdmList.innerHTML = state.pageDiagrams.map((d, i) => {
+    const active = Number(state.selectedPageDiagramIdx) === Number(d.idx) && state.pageDiagramMode === 'update';
+    return `<button class="pdm-item${active ? ' active' : ''}" type="button" data-idx="${d.idx}">
+      <span class="pdm-item-type">${escHtml(d.type)}</span>
+      <span class="pdm-item-name">${escHtml(shortNameFromDiagram(d, i))}</span>
+    </button>`;
+  }).join('');
+
+  pdmList.querySelectorAll('.pdm-item').forEach(btn => {
+    btn.addEventListener('click', () => selectPageDiagram(Number(btn.dataset.idx)));
+  });
+}
+
+function selectPageDiagram(idx) {
+  const d = state.pageDiagrams.find(x => Number(x.idx) === Number(idx));
+  if (!d) return;
+  state.selectedPageDiagramIdx = d.idx;
+  state.pageDiagramMode = 'update';
+  editor.value = d.code;
+  diagramType.value = d.type;
+  cfFileName.value = d.filename || d.generatedFilename || 'diagram.png';
+  diagramName.value = shortNameFromDiagram(d, d.idx);
+  pdmContext.innerHTML = [
+    d.contextBefore ? `<div><strong>Before:</strong> ${escHtml(d.contextBefore)}</div>` : '',
+    d.contextAfter ? `<div><strong>After:</strong> ${escHtml(d.contextAfter)}</div>` : ''
+  ].filter(Boolean).join('') || '<span class="pdm-empty">No nearby page text found.</span>';
+  library.currentId = null;
+  saveCreds();
+  updateSyncBtn();
+  updateEditorStats();
+  renderPageDiagramManager();
+  scheduleRender();
+}
+
+async function loadPageDiagrams() {
+  const pageId = extractPageId(cfPageId.value.trim()) || cfPageId.value.trim();
+  if (!pageId || !HAS_API) return;
+  cfPageId.value = pageId;
+  setSyncStatus('loading', 'Loading page diagrams...');
+  btnLoadPageDiagrams.disabled = true;
+  try {
+    const res = await fetch(`/api/confluence/process/${pageId}`);
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `Server ${res.status}`);
+    state.pageDiagrams = data.diagrams || [];
+    state.pageTitle = data.pageTitle || pickedPageMeta.pageName || `Page ${pageId}`;
+    state.pageVersion = data.pageVersion || null;
+    state.selectedPageDiagramIdx = null;
+    state.pageDiagramMode = null;
+    renderPageDiagramManager();
+    if (state.pageDiagrams.length) {
+      selectPageDiagram(state.pageDiagrams[0].idx);
+      setSyncStatus('success', `Loaded ${state.pageDiagrams.length} diagram${state.pageDiagrams.length > 1 ? 's' : ''}`);
+    } else {
+      setSyncStatus('', 'No diagrams found on page');
+      showToast('No diagrams found. Use + Add Diagram to create one.', 'warn');
+    }
+  } catch (err) {
+    setSyncStatus('error', 'Error: ' + err.message.substring(0, 100));
+  } finally {
+    btnLoadPageDiagrams.disabled = false;
+    setTimeout(() => setSyncStatus('', ''), 3500);
+  }
+}
+
+function addPageDiagramDraft() {
+  const pageId = extractPageId(cfPageId.value.trim()) || cfPageId.value.trim();
+  if (!pageId) {
+    cfPageId.focus();
+    showToast('Choose a page before adding a diagram', 'warn');
+    return;
+  }
+  const tpl = TEMPLATES['mermaid-flowchart'];
+  state.selectedPageDiagramIdx = null;
+  state.pageDiagramMode = 'add';
+  editor.value = tpl.code.trimStart();
+  diagramType.value = tpl.type;
+  diagramName.value = 'New page diagram';
+  cfFileName.value = `diagram-${Date.now().toString(36)}.png`;
+  pdmContext.innerHTML = '<strong>New diagram:</strong> this will be appended to the selected Confluence page.';
+  library.currentId = null;
+  saveCreds();
+  updateSyncBtn();
+  updateEditorStats();
+  renderPageDiagramManager();
+  scheduleRender();
+}
+
+btnLoadPageDiagrams?.addEventListener('click', loadPageDiagrams);
+btnAddPageDiagram?.addEventListener('click', addPageDiagramDraft);
+
 const cfUrl      = $('cfUrl');
 const cfEmail    = $('cfEmail');
 const cfToken    = $('cfToken');
@@ -971,6 +1094,39 @@ btnSync.addEventListener('click', async () => {
   btnSync.textContent = 'Syncing…';
 
   try {
+    if (HAS_API && state.pageDiagramMode) {
+      const res = await fetch(`/api/confluence/process/${pageId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: state.pageDiagramMode,
+          idx: state.pageDiagramMode === 'update' ? state.selectedPageDiagramIdx : null,
+          type: diagramType.value,
+          code: editor.value.trim(),
+          filename: fname
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || `Server ${res.status}`);
+
+      setSyncStatus('success', state.pageDiagramMode === 'add' ? 'Added to page' : 'Updated selected');
+      confluenceUrl.value = data.url;
+      btnCopyUrl.disabled = false;
+      cfFileName.value = data.filename || fname;
+
+      const cfPageUrl = (cfUrl.value || '').replace(/\/$/, '') ||
+        (data.url ? data.url.split('/wiki/')[0] : '');
+      if (cfPageUrl && pageId) {
+        btnOpenPage.href = `${cfPageUrl}/wiki/pages/viewpage.action?pageId=${pageId}`;
+        btnOpenPage.style.display = '';
+      }
+
+      navigator.clipboard.writeText(data.url).catch(() => {});
+      showToast(state.pageDiagramMode === 'add' ? 'Added diagram to Confluence page' : 'Updated selected diagram');
+      await loadPageDiagrams();
+      return;
+    }
+
     // 1. Render diagram as PNG blob via kroki.io
     const pngUrl = buildDiagramUrl(editor.value.trim(), diagramType.value, 'png');
     const pngRes = await fetch(pngUrl);
@@ -1097,6 +1253,7 @@ btnProcessPage.addEventListener('click', async () => {
     if (data.errors?.length) {
       console.warn('Process errors:', data.errors);
     }
+    await loadPageDiagrams();
   } catch (err) {
     setSyncStatus('error', '❌ ' + err.message.substring(0, 100));
   } finally {
@@ -1137,13 +1294,29 @@ const modalOverlay = $('modalOverlay');
 const btnHowTo     = $('btnHowTo');
 const modalClose   = $('modalClose');
 
-// ─── ESC closes any open modal ────────────────────────────────────────────────
+// ─── Global keyboard shortcuts ────────────────────────────────────────────────
 document.addEventListener('keydown', e => {
-  if (e.key !== 'Escape') return;
-  [modalOverlay, pagePickerOverlay, $('syncResultOverlay')].forEach(el => {
-    if (el?.classList.contains('open')) el.classList.remove('open');
-  });
-  if (libDrawer?.classList.contains('open')) closeLibrary();
+  // ESC — close any open modal
+  if (e.key === 'Escape') {
+    [modalOverlay, pagePickerOverlay, $('syncResultOverlay')].forEach(el => {
+      if (el?.classList.contains('open')) el.classList.remove('open');
+    });
+    if (libDrawer?.classList.contains('open')) closeLibrary();
+    return;
+  }
+
+  // Ctrl+S / Cmd+S — save diagram
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault();
+    const hasPage = !!new URLSearchParams(window.location.search).get('page');
+    if (hasPage && HAS_API) {
+      // Edit-from-Confluence mode → sync back to Confluence
+      if (!btnSync.disabled) btnSync.click();
+    } else {
+      // Normal mode → save to local library (auto-name if needed)
+      if (editor.value.trim()) btnSaveDiagram.click();
+    }
+  }
 });
 
 btnHowTo.addEventListener('click', () => modalOverlay.classList.add('open'));
@@ -1215,6 +1388,7 @@ async function onPickerClick(el) {
     saveCreds();
     updateSyncBtn();
     pagePickerOverlay.classList.remove('open');
+    loadPageDiagrams();
   }
 }
 
@@ -1260,6 +1434,42 @@ function showToast(msg, type = 'success') {
   t.className = `app-toast app-toast--${type} app-toast--visible`;
   clearTimeout(t._timer);
   t._timer = setTimeout(() => t.classList.remove('app-toast--visible'), 2800);
+}
+
+// Persistent banner for autoprocess result — stays until closed or tab is closed.
+function showAutoBanner(msg, type = 'ok') {
+  const isOk = type === 'ok';
+  const bg    = isOk ? '#1f7a4b' : (type === 'warn' ? '#856404' : '#8b1a1a');
+  const banner = document.createElement('div');
+  banner.style.cssText = [
+    'position:fixed;top:0;left:0;right:0;z-index:9999',
+    `background:${bg};color:#fff`,
+    'padding:14px 20px;display:flex;align-items:center;justify-content:center;gap:12px',
+    'font-size:14px;font-weight:500;box-shadow:0 2px 8px rgba(0,0,0,.35)',
+  ].join(';');
+
+  const text = document.createElement('span');
+  text.textContent = msg;
+  banner.appendChild(text);
+
+  if (isOk) {
+    const hint = document.createElement('span');
+    hint.textContent = '— Go back and refresh your Confluence page.';
+    hint.style.cssText = 'opacity:.75;font-weight:400';
+    banner.appendChild(hint);
+
+    const close = document.createElement('button');
+    close.textContent = 'Close tab';
+    close.style.cssText = [
+      'background:rgba(255,255,255,.22);border:none;color:#fff',
+      'padding:5px 14px;border-radius:4px;cursor:pointer;margin-left:8px;font-size:13px',
+    ].join(';');
+    close.addEventListener('click', () => window.close());
+    banner.appendChild(close);
+  }
+
+  document.body.prepend(banner);
+  document.body.style.paddingTop = (banner.offsetHeight + 4) + 'px';
 }
 
 function updateLibCount() {
@@ -1422,8 +1632,15 @@ function autoSaveToLibrary() {
 
 // Save / create library entry from sync bar
 btnSaveDiagram.addEventListener('click', () => {
-  const name = diagramName.value.trim();
-  if (!name) { diagramName.focus(); showToast('Enter a diagram name first', 'warn'); return; }
+  let name = diagramName.value.trim();
+  if (!name) {
+    // Auto-name: "mermaid-flowchart 23/07" style
+    const today = new Date();
+    const dd = String(today.getDate()).padStart(2, '0');
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    name = `${diagramType.value}-${dd}/${mm}`;
+    diagramName.value = name;
+  }
   if (library.currentId) {
     library.updateCurrent({ code: editor.value, type: diagramType.value });
     library.rename(library.currentId, name);
@@ -1554,23 +1771,29 @@ cfPageId.addEventListener('input', () => {
     updateSyncBtn();
     updateProcessBtn();
 
-    // ── Edit-in-Kroki mode: page param present → rename Sync button, add Ctrl+S ──
+    // ── Edit-in-Kroki mode: page param present → rename Sync button ──────────
     if (paramPage && HAS_API) {
       btnSync.innerHTML = '💾 Save to Confluence';
       btnSync.title = 'Save diagram back to this Confluence page (Ctrl+S)';
-      document.addEventListener('keydown', e => {
-        if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-          e.preventDefault();
-          if (!btnSync.disabled) btnSync.click();
-        }
-      });
     }
 
     // ── ?autoprocess=1: Re-sync link clicked from Confluence page ──────────────
     const paramAutoProcess = p.get('autoprocess');
     if (paramAutoProcess && paramPage && HAS_API) {
-      setStatus('loading', 'Re-syncing page diagrams…');
-      setTimeout(() => btnProcessPage.click(), 300); // slight delay so UI settles first
+      setStatus('loading', '⏳ Re-syncing page diagrams…');
+      fetch(`/api/confluence/process/${paramPage}`, { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+          if (data.error) throw new Error(data.error);
+          const n = data.processed ?? 0;
+          showAutoBanner(
+            n === 0
+              ? '⚠️ No diagram code blocks found on this page'
+              : `✅ ${n} diagram${n > 1 ? 's' : ''} synced successfully`,
+            n === 0 ? 'warn' : 'ok'
+          );
+        })
+        .catch(err => showAutoBanner('❌ ' + err.message.slice(0, 120), 'error'));
       return;
     }
 
