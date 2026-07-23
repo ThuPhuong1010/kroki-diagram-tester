@@ -898,7 +898,6 @@ async function renderDiagram() {
     if (effectiveXml) {
       const url = buildDiagramUrl(effectiveXml, type, format);
 
-      showState('loading');
       setStatus('loading', 'Rendering BPMN Canvas...');
       state.isRendering = true;
 
@@ -909,10 +908,16 @@ async function renderDiagram() {
         }
 
         previewContent.innerHTML = '';
+        previewContent.classList.add('bpmn-mode');
+        previewContent.style.transform = 'none';
+
         const container = document.createElement('div');
         container.className = 'bpmn-container';
         container.id = 'bpmnCanvas';
         previewContent.appendChild(container);
+
+        // Show content FIRST so element is visible & has layout dimensions in DOM
+        showState('content');
 
         const BpmnClass = window.BpmnJS || window.BpmnJSViewer;
         state.bpmnViewer = new BpmnClass({
@@ -920,12 +925,28 @@ async function renderDiagram() {
         });
 
         await state.bpmnViewer.importXML(effectiveXml);
-        try { state.bpmnViewer.get('canvas').zoom('fit-viewport'); } catch (e) {}
+
+        // Fit viewport after DOM layout is ready
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            if (state.bpmnViewer) {
+              try {
+                const canvas = state.bpmnViewer.get('canvas');
+                canvas.resized();
+                canvas.zoom('fit-viewport');
+                const z = canvas.zoom();
+                if (typeof z === 'number' && !isNaN(z)) {
+                  state.zoom = z;
+                  zoomLabel.textContent = Math.round(state.zoom * 100) + '%';
+                }
+              } catch (e) {}
+            }
+          }, 50);
+        });
 
         previewContent.classList.add('animate');
         setTimeout(() => previewContent.classList.remove('animate'), 400);
 
-        showState('content');
         setStatus('success', 'Rendered (BPMN Canvas) ✓');
 
         state.currentUrl = url;
@@ -942,6 +963,7 @@ async function renderDiagram() {
   }
 
   // Fallback for non-BPMN or if BPMN canvas fails
+  previewContent.classList.remove('bpmn-mode');
   if (state.bpmnViewer) {
     try { state.bpmnViewer.destroy(); } catch (e) {}
     state.bpmnViewer = null;
@@ -1070,6 +1092,13 @@ $('btnClear').addEventListener('click', () => {
 
 // ─── Zoom ─────────────────────────────────────────────────────────────────────
 function applyZoom() {
+  if (state.bpmnViewer) {
+    try {
+      state.bpmnViewer.get('canvas').zoom(state.zoom);
+      zoomLabel.textContent = Math.round(state.zoom * 100) + '%';
+      return;
+    } catch (e) {}
+  }
   previewContent.style.transform = `scale(${state.zoom})`;
   zoomLabel.textContent = Math.round(state.zoom * 100) + '%';
 }
@@ -1085,6 +1114,19 @@ $('btnZoomOut').addEventListener('click', () => {
 });
 
 $('btnZoomReset').addEventListener('click', () => {
+  if (state.bpmnViewer) {
+    try {
+      const canvas = state.bpmnViewer.get('canvas');
+      canvas.resized();
+      canvas.zoom('fit-viewport');
+      const z = canvas.zoom();
+      if (typeof z === 'number' && !isNaN(z)) {
+        state.zoom = z;
+        zoomLabel.textContent = Math.round(z * 100) + '%';
+      }
+      return;
+    } catch (e) {}
+  }
   state.zoom = 1;
   applyZoom();
 });

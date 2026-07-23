@@ -1636,15 +1636,29 @@ body { background: var(--bg-base); }
 }
 
 /* ===== BPMN CANVAS (ported from bpmn_generator) ===== */
+.preview-content.bpmn-mode {
+  align-items: stretch;
+  justify-content: stretch;
+  height: 100%;
+}
+
 .bpmn-container {
   width: 100%;
   height: 100%;
-  min-height: 550px;
+  min-height: 500px;
+  flex: 1;
   background-color: #ffffff;
   border-radius: var(--radius-sm);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
   position: relative;
   overflow: hidden;
+}
+
+.bpmn-container .bjs-container,
+.bpmn-container .djs-container,
+.bpmn-container svg {
+  width: 100% !important;
+  height: 100% !important;
 }
 
 .bpmn-container .djs-visual rect,
