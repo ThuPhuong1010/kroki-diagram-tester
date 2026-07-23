@@ -958,6 +958,9 @@ function updateSyncBtn() {
 btnSync.addEventListener('click', async () => {
   if (!syncReady()) return;
 
+  // Check if we're in "Edit from Confluence" mode (came from an Edit-in-Kroki link)
+  const isEditMode = !!new URLSearchParams(window.location.search).get('page') && HAS_API;
+
   // Defensive: extract page ID from URL if user didn't wait for debounce
   const pageId = extractPageId(cfPageId.value.trim()) || cfPageId.value.trim();
   if (pageId !== cfPageId.value.trim()) { cfPageId.value = pageId; cfPageIdHint.textContent = ''; }
@@ -1026,9 +1029,15 @@ btnSync.addEventListener('click', async () => {
 
     // Auto-copy Confluence URL + show inline (no modal popup)
     navigator.clipboard.writeText(data.url).catch(() => {});
-    showToast(`✅ Synced! URL copied — click "Open ↗" to embed`);
 
-    setTimeout(() => setSyncStatus('', ''), 4000);
+    // When opened from "Edit in Kroki" link, show "close tab" prompt
+    if (isEditMode) {
+      showToast(`✅ Saved to Confluence! You can close this tab.`);
+      setSyncStatus('success', '✅ Saved! <a href="javascript:window.close()" style="color:inherit;text-decoration:underline">Close tab ↗</a>');
+    } else {
+      showToast(`✅ Synced! URL copied — click "Open ↗" to embed`);
+      setTimeout(() => setSyncStatus('', ''), 4000);
+    }
 
   } catch (err) {
     let msg = err.message || 'Unknown error';
@@ -1545,7 +1554,27 @@ cfPageId.addEventListener('input', () => {
     updateSyncBtn();
     updateProcessBtn();
 
-    // Auto-load diagram code from "Edit in Kroki" link.
+    // ── Edit-in-Kroki mode: page param present → rename Sync button, add Ctrl+S ──
+    if (paramPage && HAS_API) {
+      btnSync.innerHTML = '💾 Save to Confluence';
+      btnSync.title = 'Save diagram back to this Confluence page (Ctrl+S)';
+      document.addEventListener('keydown', e => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+          e.preventDefault();
+          if (!btnSync.disabled) btnSync.click();
+        }
+      });
+    }
+
+    // ── ?autoprocess=1: Re-sync link clicked from Confluence page ──────────────
+    const paramAutoProcess = p.get('autoprocess');
+    if (paramAutoProcess && paramPage && HAS_API) {
+      setStatus('loading', 'Re-syncing page diagrams…');
+      setTimeout(() => btnProcessPage.click(), 300); // slight delay so UI settles first
+      return;
+    }
+
+    // ── Auto-load diagram code from "Edit in Kroki" link ──────────────────────
     // Priority: ?code= param (embedded, self-contained) > Confluence API fetch > nothing.
     const paramCode = p.get('code');
     if (paramCode && typeof pako !== 'undefined') {

@@ -203,50 +203,95 @@ async function uploadAttachment(cfUrl, pageId, filename, imgBuf, auth) {
   }
 }
 
-// Insert rendered image + "Edit in Kroki" link after each code block.
-// Idempotent: uses HTML comment markers keyed by filename (which contains code hash).
-// If code changes → filename changes → old marker replaced automatically.
-// Link format: ?type=mermaid&page=PAGE_ID — user opens tool and pastes code manually.
+// Check if a Confluence attachment with this exact filename already exists.
+// filename encodes an MD5 hash of type+code, so existence → code unchanged → skip re-render.
+async function checkAttachmentExists(cfUrl, pageId, filename, auth) {
+  const r = await fetch(
+    `${cfUrl}/wiki/rest/api/content/${pageId}/child/attachment?filename=${encodeURIComponent(filename)}&limit=1`,
+    { headers: { Authorization: auth, Accept: 'application/json' } }
+  );
+  const json = r.ok ? await r.json() : null;
+  return !!(json?.results?.[0]);
+}
+
+// Build the full kroki block: image + links + expand(code source).
+// Code block is consumed (moved inside expand so page stays clean).
+function buildKrokiBlock(d, pageId, toolUrl) {
+  const GEN_END    = '<!-- /kroki -->';
+  const editHref   = `${toolUrl}?type=${d.type}&amp;page=${pageId}&amp;code=${encodeCodeParam(d.code)}`;
+  const resyncHref = `${toolUrl}?page=${pageId}&amp;autoprocess=1`;
+  return (
+    `\n<!-- kroki:${d.filename} -->` +
+    `\n<ac:image ac:align="center"><ri:attachment ri:filename="${d.filename}"/></ac:image>` +
+    `\n<p style="text-align:center;font-size:11px">` +
+      `<a href="${editHref}" rel="nofollow">✏️ Edit in Kroki ↗</a>` +
+      ` &nbsp;·&nbsp; <a href="${resyncHref}" rel="nofollow">🔄 Re-sync</a>` +
+    `</p>` +
+    `\n<ac:structured-macro ac:name="expand" ac:schema-version="1">` +
+      `<ac:parameter ac:name="title">📝 Source code (${d.type})</ac:parameter>` +
+      `<ac:rich-text-body>${d.fullMatch}</ac:rich-text-body>` +
+    `</ac:structured-macro>` +
+    `\n${GEN_END}`
+  );
+}
+
+// Patch Confluence storage HTML: wrap each code block in an expand macro,
+// embed image above it, add Edit + Re-sync links.
+//
+// Idempotency — 3 cases handled:
+//   1. Code block is INSIDE an existing kroki block (second+ run after wrapping):
+//      search backwards for <!-- kroki: --> enclosing the code pos.
+//      Same hash → skip. Different hash → replace whole kroki block.
+//   2. Code block is BEFORE an old-style kroki marker (pre-expand format, migration):
+//      search 500 chars forward. Replace from code block start to <!-- /kroki --> end.
+//   3. First time → consume code block, insert full kroki block in its place.
 function patchPageBody(html, diagrams, pageId, toolUrl) {
-  let body = html;
+  let body    = html;
   let changed = false;
   const GEN_END = '<!-- /kroki -->';
 
   for (const d of diagrams) {
+    const genStart = `<!-- kroki:${d.filename} -->`;
+    const newBlock = buildKrokiBlock(d, pageId, toolUrl);
+
     const codePos = body.indexOf(d.fullMatch);
     if (codePos === -1) continue;
-    const insertAt = codePos + d.fullMatch.length;
 
-    const genStart  = `<!-- kroki:${d.filename} -->`;
-    const editHref  = `${toolUrl}?type=${d.type}&amp;page=${pageId}&amp;code=${encodeCodeParam(d.code)}`;
-    const newBlock  =
-      `\n${genStart}` +
-      `\n<ac:image ac:align="center"><ri:attachment ri:filename="${d.filename}"/></ac:image>` +
-      `\n<p style="text-align:center;font-size:11px">` +
-        `<a href="${editHref}" rel="nofollow">✏️ Edit in Kroki ↗</a>` +
-      `</p>` +
-      `\n${GEN_END}`;
-
-    // Look for any kroki marker immediately after this code block
-    const zone       = body.slice(insertAt, insertAt + 300);
-    const markerIdx  = zone.indexOf('<!-- kroki:');
-
-    if (markerIdx !== -1) {
-      const absStart = insertAt + markerIdx;
-      if (body.slice(absStart, absStart + genStart.length) === genStart) {
-        continue; // same code hash → nothing changed, skip
-      }
-      // Different hash: code was edited → find end marker and replace
-      const endIdx = body.indexOf(GEN_END, absStart);
-      if (endIdx !== -1) {
-        body = body.slice(0, absStart) + newBlock.trimStart() + body.slice(endIdx + GEN_END.length);
+    // ── Case 1: code block already inside a kroki block (wrapped) ─────────────
+    const beforeCode    = body.slice(0, codePos);
+    const krokiOpenIdx  = beforeCode.lastIndexOf('<!-- kroki:');
+    if (krokiOpenIdx !== -1) {
+      const krokiCloseIdx = body.indexOf(GEN_END, krokiOpenIdx);
+      if (krokiCloseIdx !== -1 && krokiCloseIdx > codePos) {
+        // code IS inside this kroki block
+        if (body.slice(krokiOpenIdx, krokiOpenIdx + genStart.length) === genStart) {
+          continue; // same hash → no change
+        }
+        // different hash → replace the whole block
+        body = body.slice(0, krokiOpenIdx) + newBlock.trimStart()
+             + body.slice(krokiCloseIdx + GEN_END.length);
         changed = true;
         continue;
       }
     }
 
-    // No marker yet → first time, insert
-    body = body.slice(0, insertAt) + newBlock + body.slice(insertAt);
+    // ── Case 2: old-style marker immediately after code block (pre-expand) ────
+    const insertAt      = codePos + d.fullMatch.length;
+    const zone          = body.slice(insertAt, insertAt + 500);
+    const oldMarkerIdx  = zone.indexOf('<!-- kroki:');
+    if (oldMarkerIdx !== -1 && oldMarkerIdx < 400) {
+      const absOldStart = insertAt + oldMarkerIdx;
+      const oldClose    = body.indexOf(GEN_END, absOldStart);
+      if (oldClose !== -1) {
+        // migrate: replace from code block start through kroki end
+        body = body.slice(0, codePos) + newBlock + body.slice(oldClose + GEN_END.length);
+        changed = true;
+        continue;
+      }
+    }
+
+    // ── Case 3: first time → consume code block, insert wrapped block ─────────
+    body = body.slice(0, codePos) + newBlock + body.slice(codePos + d.fullMatch.length);
     changed = true;
   }
   return { body, changed };
@@ -306,10 +351,13 @@ module.exports = async (req, res) => {
       return res.json({ ok: true, processed: 0, message: 'No diagram code blocks found on this page' });
     }
 
-    // 3. Render each + upload attachment (parallel)
-    const errors = [];
+    // 3. Render + upload — skip if attachment already exists with same filename (hash = same code)
+    const errors  = [];
+    let   cached  = 0;
     await Promise.all(diagrams.map(async d => {
       try {
+        const exists = await checkAttachmentExists(cfUrl, pageId, d.filename, auth);
+        if (exists) { cached++; return; } // same code hash → no re-render needed
         const { buf } = await renderViaKroki(d.type, d.code);
         await uploadAttachment(cfUrl, pageId, d.filename, buf, auth);
       } catch (e) {
@@ -353,7 +401,8 @@ module.exports = async (req, res) => {
 
     res.json({
       ok: true,
-      processed: uploaded.length,
+      rendered: uploaded.length - cached,
+      cached,
       total: diagrams.length,
       bodyUpdated: changed,
       errors: errors.length ? errors : undefined,
