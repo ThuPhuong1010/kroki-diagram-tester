@@ -103,6 +103,12 @@
     </div>
 
     <div class="toolbar-right">
+      <!-- hidden file input -->
+      <input type="file" id="importFileInput" accept=".excalidraw,.drawio,.xml,.mmd,.mermaid,.puml,.d2,.dot,.json" style="display:none">
+      <button class="btn btn-ghost" id="btnImportFile" title="Import diagram file (.excalidraw, .drawio, .mmd, .puml, .d2)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Import
+      </button>
       <button class="btn btn-ghost" id="btnOpenLibrary" title="My Diagrams">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
         Library
@@ -252,6 +258,10 @@
       <button class="btn btn-ghost btn-sm" id="btnHowTo">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
         Guide
+      </button>
+      <button class="btn btn-ghost btn-sm" id="btnCopyMd" disabled title="Copy as Markdown AI block — paste into ChatGPT, Claude, Gemini">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+        Copy .md
       </button>
       <div class="status-indicator" id="statusIndicator">
         <span class="status-dot" id="statusDot"></span>

@@ -7,6 +7,7 @@
   --bg-surface:    #13161e;
   --bg-elevated:   #1a1e2a;
   --bg-hover:      #21263a;
+  --bg-active:     #1e2436;   /* FIX: was used but never defined */
   --border:        rgba(255,255,255,0.07);
   --border-bright: rgba(255,255,255,0.14);
 
@@ -22,6 +23,11 @@
   /* Text */
   --text-primary:   #e8eaf0;
   --text-secondary: #8b91a8;
+  --text-muted:     #4b5168;  /* FIX: was used but never defined */
+
+  /* Typography */
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace; /* FIX: was used but never defined */
+
   /* Sizing */
   --header-h:  52px;
   --toolbar-h: 56px;
@@ -30,25 +36,7 @@
   --radius-sm: 6px;
 }
 
-/* ===== MODAL CSS ===== */
-.modal-overlay {
-  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-  background: rgba(0,0,0,0.7); display: none; align-items: center; justify-content: center; z-index: 1000;
-}
-.modal-overlay.active { display: flex; }
-.modal {
-  background: var(--bg-surface); border: 1px solid var(--border-bright);
-  border-radius: var(--radius); width: 450px; padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-}
-.modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.modal-title { font-weight: 600; font-size: 16px; }
-.modal-close { background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 18px; }
-.howto-step { display: flex; gap: 12px; margin-bottom: 12px; align-items: flex-start; }
-.step-num { 
-  background: var(--accent); color: white; width: 20px; height: 20px; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; flex-shrink: 0;
-}
-.howto-note { margin-top: 20px; padding: 12px; background: rgba(251,191,36,0.1); border-radius: var(--radius-sm); font-size: 12px; color: var(--warning); }
+
 
 html, body {
   height: 100%;
@@ -414,13 +402,12 @@ html, body {
 
 /* Preview Content */
 .preview-content {
-  display: none;
+  display: none;  /* toggled to flex via .visible */
   padding: 24px;
   transform-origin: center center;
   transition: transform 0.2s ease;
   width: 100%;
   min-height: 100%;
-  display: none;
   align-items: center;
   justify-content: center;
 }
@@ -1061,3 +1048,92 @@ html, body {
 }
 .btn-process:hover:not(:disabled) { background: #115e59; transform: translateY(-1px); }
 .btn-process:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+
+/* ===== SYNC BUTTON LOADING STATE ===== */
+.btn--loading {
+  position: relative;
+  pointer-events: none;
+  opacity: 0.8;
+}
+.btn--loading svg { display: none; }
+.btn--loading::before {
+  content: '';
+  display: inline-block;
+  width: 13px; height: 13px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.65s linear infinite;
+  flex-shrink: 0;
+}
+
+/* ===== MODIFIED SINCE SYNC INDICATOR ===== */
+.sync-modified-badge {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--warning);
+  background: rgba(251,191,36,0.1);
+  border: 1px solid rgba(251,191,36,0.3);
+  border-radius: 99px;
+  padding: 2px 8px;
+  white-space: nowrap;
+  animation: fadeIn 0.3s ease;
+}
+.sync-modified-badge.visible { display: inline-flex; }
+
+/* ===== EDITOR STATS (line/char count in panel header) ===== */
+.editor-stats {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+  transition: color 0.2s;
+}
+
+/* ===== CTRL+ENTER HINT ===== */
+.render-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.render-hint kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 5px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-bright);
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-secondary);
+  letter-spacing: 0;
+}
+
+/* ===== DRAG & DROP OVERLAY (import file) ===== */
+.editor-wrapper.drag-over {
+  outline: 2px dashed var(--accent);
+  outline-offset: -3px;
+  background: rgba(108,142,245,0.06);
+}
+.editor-wrapper.drag-over::after {
+  content: '⬆ Drop to import';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--accent);
+  pointer-events: none;
+  background: rgba(13,15,20,0.7);
+  backdrop-filter: blur(4px);
+  border-radius: var(--radius-sm);
+  letter-spacing: 0.02em;
+}

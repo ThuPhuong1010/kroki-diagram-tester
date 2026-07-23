@@ -15,6 +15,7 @@
  *   WEBHOOK_SPACES=MV,OPS   (comma-separated space keys, empty = all spaces)
  */
 
+const crypto         = require('crypto');
 const processHandler = require('../confluence/process/[pageId]');
 
 // Simple mock of Express res to capture processHandler output
@@ -26,14 +27,27 @@ function fakeRes() {
   return r;
 }
 
+// Page create/update events — strict set to prevent false positives like
+// "content_created", "space_created", etc. matching a substring check.
+const VALID_EVENTS = new Set(['page_created', 'page_updated', 'page:created', 'page:updated']);
+
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return res.status(405).end();
 
-  // Optional: validate Confluence webhook secret
+  // Optional: validate Confluence webhook secret via HMAC-SHA256.
+  // Confluence sends: X-Hub-Signature: sha256=<hex>
   const secret = process.env.WEBHOOK_SECRET;
   if (secret) {
-    const sig = req.headers['x-hub-signature'] || '';
-    if (!sig.includes(secret)) {
+    const sig  = req.headers['x-hub-signature'] || '';
+    const body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body ?? '');
+    const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(body).digest('hex');
+    let sigValid = false;
+    try {
+      // timingSafeEqual prevents timing-oracle attacks
+      sigValid = sig.length === expected.length &&
+        crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+    } catch { sigValid = false; }
+    if (!sigValid) {
       return res.status(401).json({ error: 'Invalid webhook secret' });
     }
   }
@@ -43,7 +57,7 @@ module.exports = async (req, res) => {
   const pageId  = payload.page?.id || payload.data?.page?.id;
 
   // Only process page create/update events
-  if (!['page_created','page_updated','page:created','page:updated'].some(e => event.includes(e.split(':')[1] || e))) {
+  if (!VALID_EVENTS.has(event)) {
     return res.json({ ok: true, skipped: `event=${event}` });
   }
   if (!pageId) return res.status(400).json({ error: 'No page.id in webhook payload' });
@@ -58,7 +72,7 @@ module.exports = async (req, res) => {
   }
 
   // Call the process handler directly (avoid HTTP hop)
-  const fakeReq = { method: 'POST', query: { pageId } };
+  const fakeReq      = { method: 'POST', query: { pageId }, headers: req.headers };
   const fakeResponse = fakeRes();
   await processHandler(fakeReq, fakeResponse);
 

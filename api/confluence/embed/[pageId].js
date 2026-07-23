@@ -89,8 +89,14 @@ module.exports = async (req, res) => {
     const title   = page.title;
 
     // 3. Patch page body to embed image
-    const toolUrl = process.env.TOOL_URL ||
-      `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers['x-forwarded-host'] || req.headers.host || 'mvldiagram.vercel.app'}`;
+    const toolUrl = (() => {
+      if (process.env.TOOL_URL) return process.env.TOOL_URL.replace(/\/$/, '');
+      // Sanitize forwarded headers to prevent injection into Confluence page body
+      const proto = /^https?$/.test(req.headers['x-forwarded-proto']) ? req.headers['x-forwarded-proto'] : 'https';
+      const host  = (req.headers['x-forwarded-host'] || req.headers.host || 'mvldiagram.vercel.app')
+        .replace(/[^a-zA-Z0-9.:\-]/g, '');  // strip any unexpected chars
+      return `${proto}://${host}`;
+    })();
     const newBody = embedInPage(page.body.storage.value, filename, type, pageId, toolUrl);
 
     const putR = await fetch(`${cfUrl}/wiki/rest/api/content/${pageId}`, {

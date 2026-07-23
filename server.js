@@ -12,38 +12,19 @@
 
 const express = require('express');
 const path    = require('path');
-const fs      = require('fs');
 
-// ─── Load .env ───────────────────────────────────────────────────────────────
-function loadEnv(envPath) {
-  if (!fs.existsSync(envPath)) return {};
-  const env = {};
-  for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
-    const t = line.trim();
-    if (!t || t.startsWith('#') || !t.includes('=')) continue;
-    const idx = t.indexOf('=');
-    env[t.slice(0, idx).trim()] = t.slice(idx + 1).trim();
-  }
-  return env;
-}
-
-const ENV_PATH = path.join(__dirname, '..', 'confluence-jira-audit', '.env');
-const ENV      = loadEnv(ENV_PATH);
-
-function clean(s) { return (s || '').split('').filter(c => c.charCodeAt(0) >= 32 && c.charCodeAt(0) <= 126).join(''); }
-
-const CF_URL   = clean(process.env.ATLASSIAN_URL   || ENV.ATLASSIAN_URL   || '').replace(/\/$/, '');
-const CF_EMAIL = clean(process.env.ATLASSIAN_EMAIL  || ENV.ATLASSIAN_EMAIL  || '');
-const CF_TOKEN = clean(process.env.ATLASSIAN_API_TOKEN || ENV.ATLASSIAN_API_TOKEN || '');
+// ─── Credentials (shared helper — avoids duplicating loadEnv/clean logic) ────
+const { getCredentials, authHeader } = require('./api/_confluence');
+const { cfUrl: CF_URL, cfEmail: CF_EMAIL, cfToken: CF_TOKEN } = getCredentials();
 
 if (!CF_URL || !CF_EMAIL || !CF_TOKEN) {
   console.warn('⚠️  Missing credentials. Confluence sync will fail.');
-  console.warn('   Check:', ENV_PATH);
-  console.warn('   Need: ATLASSIAN_URL, ATLASSIAN_EMAIL, ATLASSIAN_API_TOKEN');
+  console.warn('   Check: ../confluence-jira-audit/.env  OR set env vars:');
+  console.warn('   ATLASSIAN_URL, ATLASSIAN_EMAIL, ATLASSIAN_API_TOKEN');
   // NOTE: don't process.exit() — this file is local-only; Vercel uses api/ functions
 }
 
-const AUTH_HEADER = 'Basic ' + Buffer.from(`${CF_EMAIL}:${CF_TOKEN}`).toString('base64');
+const AUTH_HEADER = authHeader(CF_EMAIL, CF_TOKEN);
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 async function cfGet(apiPath, query = '') {
@@ -100,11 +81,20 @@ app.get('/api/confluence/check/:pageId', async (req, res) => {
   } catch (err) { res.status(502).json({ exists: false, error: err.message }); }
 });
 
-// ── POST /api/confluence/process/:pageId ────────────────────────────────────
-// Scans Confluence page for diagram code blocks → renders → uploads → embeds
-app.post('/api/confluence/process/:pageId', async (req, res) => {
+// ── GET|POST /api/confluence/process/:pageId ────────────────────────────────
+// GET  → return diagram code blocks found on this page (used by editor auto-load)
+// POST → scan, render, upload, embed all diagrams on the page
+app.all('/api/confluence/process/:pageId', async (req, res) => {
   const handler = require('./api/confluence/process/[pageId]');
-  handler({ method: 'POST', query: { pageId: req.params.pageId } }, res);
+  handler({ method: req.method, query: { pageId: req.params.pageId }, headers: req.headers }, res);
+});
+
+// ── POST /api/confluence/embed/:pageId ──────────────────────────────────────
+// Primary "Sync to Confluence" action — upload PNG + patch page body
+// NOTE: This route was missing from the local server (Vercel-only). Fixed.
+app.post('/api/confluence/embed/:pageId', async (req, res) => {
+  const handler = require('./api/confluence/embed/[pageId]');
+  handler({ method: 'POST', query: { pageId: req.params.pageId }, body: req.body, headers: req.headers }, res);
 });
 
 // ── POST /api/webhook/confluence ─────────────────────────────────────────────

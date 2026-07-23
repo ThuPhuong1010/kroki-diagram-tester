@@ -1598,3 +1598,269 @@ cfPageId.addEventListener('input', () => {
   editor.focus();
   setTimeout(renderDiagram, 300);
 })();
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DIAGRAM FILE IMPORT ENGINE
+// Supported input formats:
+//   • .drawio / .xml  → draw.io XML  → Mermaid flowchart TD
+//   • .excalidraw     → Excalidraw JSON → Mermaid (or excalidraw type if complex)
+//   • .mmd / .mermaid → raw Mermaid code (passthrough)
+//   • .puml           → PlantUML code (passthrough)
+//   • .d2             → D2 code (passthrough)
+//   • .dot            → Graphviz DOT (passthrough)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── draw.io XML → Mermaid ────────────────────────────────────────────────────
+function drawioToMermaid(xmlText) {
+  const parser = new DOMParser();
+  const doc    = parser.parseFromString(xmlText, 'text/xml');
+  if (doc.querySelector('parsererror')) throw new Error('Invalid XML / draw.io file');
+
+  const nodes = {};
+  const edges = [];
+
+  doc.querySelectorAll('mxCell').forEach(cell => {
+    const id     = cell.getAttribute('id');
+    const vertex = cell.getAttribute('vertex');
+    const edge   = cell.getAttribute('edge');
+    const style  = (cell.getAttribute('style') || '').toLowerCase();
+    const source = cell.getAttribute('source');
+    const target = cell.getAttribute('target');
+    const rawVal = cell.getAttribute('value') || '';
+    const label  = rawVal
+      .replace(/<[^>]+>/g, '')
+      .replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
+      .trim();
+
+    if (id === '0' || id === '1') return;
+
+    if (vertex === '1') {
+      let shape = 'rect';
+      if (/ellipse|circle|startstate|endstate/.test(style)) shape = 'circle';
+      else if (/rhombus|diamond|condition/.test(style)) shape = 'diamond';
+      else if (/cylinder|storage/.test(style)) shape = 'cylinder';
+      else if (/parallelogram|input/.test(style)) shape = 'parallelogram';
+      else if (/hexagon/.test(style)) shape = 'hexagon';
+      else if (/rounded=1/.test(style)) shape = 'stadium';
+      nodes[id] = { label: label || id, shape };
+    }
+
+    if (edge === '1' && source && target) {
+      edges.push({ source, target, label });
+    }
+  });
+
+  if (!Object.keys(nodes).length && !edges.length) {
+    throw new Error(
+      'Không tìm thấy elements.\n' +
+      'Thử export Uncompressed XML từ draw.io: Extras → Edit Diagram → copy XML.'
+    );
+  }
+
+  const nid = {};
+  Object.keys(nodes).forEach((id, i) => { nid[id] = `N${i}`; });
+  const q = s => (s || '').replace(/"/g, "'").replace(/\n/g, ' ').substring(0, 80);
+
+  let mmd = '%%{init:{"flowchart":{"htmlLabels":false}}}%%\nflowchart TD\n';
+
+  Object.entries(nodes).forEach(([id, node]) => {
+    const n = nid[id]; const lbl = q(node.label);
+    switch (node.shape) {
+      case 'circle':        mmd += `  ${n}(("${lbl}"))\n`; break;
+      case 'diamond':       mmd += `  ${n}{"${lbl}"}\n`;   break;
+      case 'cylinder':      mmd += `  ${n}[("${lbl}")]\n`; break;
+      case 'parallelogram': mmd += `  ${n}[/"${lbl}"/]\n`; break;
+      case 'hexagon':       mmd += `  ${n}{{"${lbl}"}}\n`; break;
+      case 'stadium':       mmd += `  ${n}(["${lbl}"])\n`; break;
+      default:              mmd += `  ${n}["${lbl}"]\n`;
+    }
+  });
+
+  edges.forEach(e => {
+    const s = nid[e.source]; const t = nid[e.target];
+    if (!s || !t) return;
+    mmd += e.label ? `  ${s} -->|"${q(e.label)}"| ${t}\n` : `  ${s} --> ${t}\n`;
+  });
+
+  return mmd.trim();
+}
+
+// ─── Excalidraw JSON → Mermaid (or excalidraw passthrough) ────────────────────
+function excalidrawImport(jsonText) {
+  const data     = JSON.parse(jsonText);
+  const elements = data.elements || [];
+
+  const shapes = {}; // id → { type, label }
+  const arrows = []; // { source, target, label }
+
+  elements.forEach(el => {
+    if (!el || el.isDeleted) return;
+    if (['rectangle', 'diamond', 'ellipse'].includes(el.type)) {
+      shapes[el.id] = { type: el.type, label: (el.label?.text || el.text || '').trim() };
+    }
+    if (el.type === 'arrow' && el.startBinding?.elementId && el.endBinding?.elementId) {
+      arrows.push({
+        source: el.startBinding.elementId,
+        target: el.endBinding.elementId,
+        label:  (el.label?.text || el.text || '').trim()
+      });
+    }
+  });
+
+  const connectedIds = new Set([...arrows.map(a => a.source), ...arrows.map(a => a.target)]);
+  const hasGraph = arrows.length > 0 && Object.keys(shapes).some(id => connectedIds.has(id));
+
+  // No graph structure → render as full Excalidraw canvas
+  if (!hasGraph) return { type: 'excalidraw', code: jsonText };
+
+  // Has graph → convert to Mermaid for text-based AI readability
+  const nid = {};
+  Object.keys(shapes).forEach((id, i) => { nid[id] = `N${i}`; });
+  const q = s => (s || '').replace(/"/g, "'").replace(/\n/g, ' ').substring(0, 80);
+
+  let mmd = 'flowchart TD\n';
+  Object.entries(shapes).forEach(([id, node]) => {
+    const n = nid[id]; const lbl = q(node.label) || n;
+    switch (node.type) {
+      case 'diamond': mmd += `  ${n}{"${lbl}"}\n`;   break;
+      case 'ellipse': mmd += `  ${n}(("${lbl}"))\n`; break;
+      default:        mmd += `  ${n}["${lbl}"]\n`;
+    }
+  });
+  arrows.forEach(a => {
+    const s = nid[a.source]; const t = nid[a.target];
+    if (!s || !t) return;
+    mmd += a.label ? `  ${s} -->|"${q(a.label)}"| ${t}\n` : `  ${s} --> ${t}\n`;
+  });
+
+  return { type: 'mermaid', code: mmd.trim() };
+}
+
+// ─── Extension → type map ─────────────────────────────────────────────────────
+const EXT_TO_TYPE = {
+  mmd: 'mermaid', mermaid: 'mermaid',
+  puml: 'plantuml', pu: 'plantuml',
+  d2: 'd2',
+  dot: 'graphviz', gv: 'graphviz',
+};
+
+// ─── Load a File object into the editor ───────────────────────────────────────
+function loadDiagramFile(file) {
+  const ext  = (file.name.split('.').pop() || '').toLowerCase();
+  const name = file.name.replace(/\.[^.]+$/, '');
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = e.target.result;
+    try {
+      let code = text;
+      let type = EXT_TO_TYPE[ext] || diagramType.value;
+
+      if (ext === 'drawio' || (ext === 'xml' && (text.includes('mxCell') || text.includes('mxGraphModel')))) {
+        code = drawioToMermaid(text);
+        type = 'mermaid';
+        showToast(`✅ draw.io → Mermaid (${code.split('\n').length} dòng)`);
+
+      } else if (ext === 'excalidraw' || (ext === 'json' && text.includes('"excalidraw"'))) {
+        const result = excalidrawImport(text);
+        code = result.code;
+        type = result.type;
+        showToast(type === 'mermaid'
+          ? `✅ Excalidraw → Mermaid (${code.split('\n').length} dòng)`
+          : `✅ Excalidraw loaded (render mode)`);
+
+      } else if (EXT_TO_TYPE[ext]) {
+        code = text;
+        showToast(`✅ ${file.name} imported`);
+
+      } else {
+        showToast(`⚠ Không hỗ trợ .${ext}  (dùng .drawio .excalidraw .mmd .puml .d2 .dot)`, 'warn');
+        return;
+      }
+
+      // Load into editor
+      editor.value      = code;
+      diagramType.value = type;
+      diagramName.value = name;
+      if (!cfFileName.value || cfFileName.value === 'diagram.png') {
+        cfFileName.value = slugify(name) + '.png';
+      }
+
+      // Save as new library entry
+      const entry = library.create(name, code, type);
+      library.currentId = entry.id;
+
+      updateEditorStats();
+      updateSyncBtn();
+      updateModifiedBadge();
+      renderLibrary();
+      btnCopyMd.disabled = false;
+      clearTimeout(state.renderTimer);
+      renderDiagram();
+
+    } catch (err) {
+      showToast(`❌ ${err.message.substring(0, 100)}`, 'warn');
+      console.error('[import]', err);
+    }
+  };
+  reader.onerror = () => showToast('❌ Không đọc được file', 'warn');
+  reader.readAsText(file, 'utf-8');
+}
+
+// ─── Import button ─────────────────────────────────────────────────────────────
+const importFileInput = document.getElementById('importFileInput');
+const btnImportFile   = document.getElementById('btnImportFile');
+btnImportFile.addEventListener('click', () => importFileInput.click());
+importFileInput.addEventListener('change', e => {
+  if (e.target.files[0]) loadDiagramFile(e.target.files[0]);
+  importFileInput.value = '';
+});
+
+// ─── Drag & Drop onto editor panel ────────────────────────────────────────────
+const editorWrapper = document.querySelector('.editor-wrapper');
+editorWrapper.addEventListener('dragover', e => {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+  editorWrapper.classList.add('drag-over');
+});
+editorWrapper.addEventListener('dragleave', e => {
+  if (!editorWrapper.contains(e.relatedTarget)) editorWrapper.classList.remove('drag-over');
+});
+editorWrapper.addEventListener('drop', e => {
+  e.preventDefault();
+  editorWrapper.classList.remove('drag-over');
+  if (e.dataTransfer.files[0]) loadDiagramFile(e.dataTransfer.files[0]);
+});
+
+// ─── "Copy .md" — wrap code in fenced block for AI tools ──────────────────────
+// Output: ```mermaid\n<code>\n```  (Claude/ChatGPT/Gemini đọc được ngay)
+const btnCopyMd = document.getElementById('btnCopyMd');
+
+function copyMarkdownBlock() {
+  const code = editor.value.trim();
+  if (!code) return;
+  const type = diagramType.value;
+  const md   = `\`\`\`${type}\n${code}\n\`\`\``;
+  navigator.clipboard.writeText(md)
+    .then(() => {
+      const orig = btnCopyMd.innerHTML;
+      btnCopyMd.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Copied!';
+      setTimeout(() => { btnCopyMd.innerHTML = orig; }, 1800);
+      showToast(`📋 Đã copy \`\`\`${type} block — paste vào AI chat`);
+    })
+    .catch(() => {
+      // Fallback: execCommand
+      const ta = Object.assign(document.createElement('textarea'), {
+        value: md, style: 'position:fixed;opacity:0'
+      });
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      showToast('📋 Copied as Markdown block');
+    });
+}
+
+btnCopyMd.addEventListener('click', copyMarkdownBlock);
+editor.addEventListener('input', () => { btnCopyMd.disabled = !editor.value.trim(); });
+// Enable on startup
+btnCopyMd.disabled = !editor.value.trim();
