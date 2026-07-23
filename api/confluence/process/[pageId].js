@@ -15,26 +15,49 @@ const DIAGRAM_TYPES = new Set([
   'nomnoml','wavedrom','pikchr','structurizr','dbml','vega','c4plantuml'
 ]);
 
-// Auto-detect diagram type from code content (for unlabeled code blocks)
+// Auto-detect diagram type from code content (for unlabeled code blocks).
+// Order matters: check specific patterns before generic ones.
 function detectDiagramType(code) {
-  const c = code.trim();
-  const first = c.split('\n')[0].trim().toLowerCase();
+  const c     = code.trim();
+  const first = c.split('\n')[0].trim();
+  const flow  = first.toLowerCase();
 
-  // Mermaid: starts with any known diagram keyword
-  if (/^(flowchart|graph\s+(td|lr|rl|bt|tb)|sequencediagram|gantt|classdiagram|statediagram|erdiagram|gitgraph|pie(\s+title)?|mindmap|timeline|xychart-beta|quadrantchart|journey|requirementdiagram|zenuml)/i.test(first))
-    return 'mermaid';
+  // PlantUML / C4-PlantUML (must be before mermaid — @startuml is unambiguous)
+  if (/^@startuml/i.test(first)) {
+    return c.includes('C4Context') || c.includes('C4Container') || c.includes('C4Component')
+      ? 'c4plantuml' : 'plantuml';
+  }
 
-  // PlantUML
-  if (/^@startuml/i.test(first)) return 'plantuml';
+  // BPMN: full XML (requires BPMNDiagram section for layout)
+  if (/^<\?xml/i.test(first) && c.includes('bpmn')) return 'bpmn';
 
-  // GraphViz / DOT
+  // Structurizr DSL
+  if (/^workspace\s*\{/i.test(first)) return 'structurizr';
+
+  // WaveDrom: JSON object with "signal" or "head" key
+  if (first.startsWith('{') && /\b(signal|head)\b/.test(c)) return 'wavedrom';
+
+  // Vega: JSON object with $schema pointing to vega
+  if (first.startsWith('{') && c.includes('"$schema"') && c.includes('vega')) return 'vega';
+
+  // GraphViz / DOT (before D2 — DOT uses "graph {" or "digraph {")
   if (/^(strict\s+)?(di)?graph(\s+\w+)?\s*\{/i.test(first)) return 'graphviz';
 
-  // D2: common pattern "X -> Y: label" or "X: { shape: ... }"
+  // Mermaid: starts with any known diagram keyword
+  if (/^(flowchart|graph\s+(td|lr|rl|bt|tb|ltr|rl)|sequencediagram|gantt|classdiagram|statediagram|erdiagram|gitgraph|pie(\s+title)?|mindmap|timeline|xychart-beta|quadrantchart|journey|requirementdiagram|zenuml|block-beta|architecture-beta)/i.test(flow))
+    return 'mermaid';
+
+  // D2: "Node -> Node" or "Node -> Node: label" (single-line arrow syntax)
   if (/^[\w\s"'.-]+\s*(?:->|<->|--)\s*[\w\s"'.-]+/.test(first)) return 'd2';
 
-  // BPMN: XML
-  if (/^<\?xml/i.test(first) && c.includes('bpmn')) return 'bpmn';
+  // Nomnoml: [Entity] bracket notation
+  if (/^\[/.test(first) && /\]\s*(-\[|->|\])/.test(c)) return 'nomnoml';
+
+  // ERD (kroki erd tool format): [Entity] block with *field lines
+  if (/^\[/.test(first) && /^\*\w/m.test(c)) return 'erd';
+
+  // DBML: Table keyword
+  if (/^table\s+\w+\s*\{/i.test(flow)) return 'dbml';
 
   return null; // unknown — skip
 }
