@@ -40,7 +40,7 @@ function detectDiagramType(code) {
 }
 
 // Types kroki.io only supports as SVG (not PNG)
-const SVG_ONLY = new Set(['bpmn', 'vega', 'dbml', 'nomnoml', 'pikchr', 'wavedrom']);
+const SVG_ONLY = new Set(['bpmn', 'vega', 'dbml', 'nomnoml', 'pikchr', 'wavedrom', 'd2']);
 
 function diagramExt(type) { return SVG_ONLY.has(type) ? 'svg' : 'png'; }
 
@@ -272,83 +272,86 @@ async function checkAttachmentExists(cfUrl, pageId, filename, auth) {
   return !!(json?.results?.[0]);
 }
 
-// Build the kroki block: image + Edit/Re-sync links.
-// Code block stays in its original position (always visible). This block is inserted AFTER the code.
+// Build the kroki block: image + Edit-in-Kroki link.
+// Note: HTML comments (<!-- kroki:... -->) are stripped by Confluence on PUT — do not use them.
+// We identify existing kroki blocks by the auto-{hash} filename pattern in <ri:attachment>.
 function buildKrokiBlock(d, pageId, toolUrl) {
-  const editHref   = `${toolUrl}?type=${d.type}&amp;page=${pageId}&amp;idx=${d.idx}&amp;code=${encodeCodeParam(d.code)}`;
-  const resyncHref = `${toolUrl}?page=${pageId}&amp;autoprocess=1`;
+  const editHref = `${toolUrl}?type=${d.type}&amp;page=${pageId}&amp;idx=${d.idx}&amp;code=${encodeCodeParam(d.code)}`;
   return (
-    `\n<!-- kroki:${d.filename} -->` +
     `\n<ac:image ac:align="center"><ri:attachment ri:filename="${d.filename}"/></ac:image>` +
     `\n<p style="text-align:center;font-size:11px">` +
-      `<a href="${editHref}" rel="nofollow">✏️ Edit in Kroki ↗</a>` +
-      ` &nbsp;·&nbsp; <a href="${resyncHref}" rel="nofollow">🔄 Re-sync</a>` +
-    `</p>` +
-    `\n<!-- /kroki -->`
+      `<a href="${editHref}" rel="nofollow">Edit in Kroki</a>` +
+    `</p>`
   );
 }
 
+// Find the auto-generated image block (image + edit-link paragraph) that follows a
+// code block's expand wrapper. Confluence strips HTML comment markers so we identify
+// our blocks by the auto-{hash}-{type}.{ext} filename pattern on <ri:attachment>.
+// Returns { start, end, filename } (absolute positions in html) or null.
+function findKrokiImage(html, fromPos) {
+  // Search within the next 800 chars for our auto-generated filename
+  const zone = html.slice(fromPos, fromPos + 800);
+  const riIdx = zone.indexOf('<ri:attachment ri:filename="auto-');
+  if (riIdx === -1 || riIdx > 750) return null;
+
+  // Find the <ac:image opening tag before ri:attachment (should be within ~60 chars)
+  const imgTagIdx = zone.lastIndexOf('<ac:image', riIdx);
+  if (imgTagIdx === -1 || riIdx - imgTagIdx > 60) return null;
+
+  // Extract the filename
+  const fnMatch = zone.slice(riIdx).match(/ri:filename="([^"]+)"/);
+  const filename = fnMatch ? fnMatch[1] : null;
+
+  // Find </ac:image>
+  const imgCloseRel = zone.indexOf('</ac:image>', riIdx);
+  if (imgCloseRel === -1) return null;
+  const absImgEnd = fromPos + imgCloseRel + '</ac:image>'.length;
+
+  // Find </p> of the edit-link paragraph (search up to 600 chars after image close)
+  const afterImg = html.slice(absImgEnd, absImgEnd + 600);
+  const pEndIdx = afterImg.indexOf('</p>');
+
+  return {
+    start: fromPos + imgTagIdx,
+    end: pEndIdx === -1 ? absImgEnd : absImgEnd + pEndIdx + '</p>'.length,
+    filename
+  };
+}
+
 // Patch Confluence storage HTML: insert rendered image AFTER each code block.
-// Code block stays in place so both source and image are always visible.
+// Code block is wrapped in an Expand macro (collapsible) so the source stays accessible.
 //
-// Idempotency — 3 cases:
-//   1. Code block is INSIDE an existing kroki block (old expand format → migrate):
-//      extract code back out, place it before new kroki block (image only).
-//   2. Kroki marker already follows code block (correct format):
-//      same hash → skip; different hash → replace marker only.
-//   3. First time → insert kroki block AFTER code block.
+// Idempotency — 3 cases handled by findKrokiImage (Confluence strips HTML comments so
+// we cannot use comment markers; instead we look for <ri:attachment ri:filename="auto-...">):
+//   2. auto-image already follows the expand wrapper → same hash: skip; different hash: replace image.
+//   3. First time → wrap code in expand + insert image block after.
 function patchPageBody(html, diagrams, pageId, toolUrl) {
   let body    = html;
   let changed = false;
-  const GEN_END = '<!-- /kroki -->';
 
   for (const d of diagrams) {
-    const genStart = `<!-- kroki:${d.filename} -->`;
     const newBlock = buildKrokiBlock(d, pageId, toolUrl);
-
-    const codePos = body.indexOf(d.fullMatch);
+    const codePos  = body.indexOf(d.fullMatch);
     if (codePos === -1) continue;
 
-    // ── Case 1: code is INSIDE a kroki block (old format → migrate) ──────────
-    const beforeCode   = body.slice(0, codePos);
-    const krokiOpenIdx = beforeCode.lastIndexOf('<!-- kroki:');
-    if (krokiOpenIdx !== -1) {
-      const krokiCloseIdx = body.indexOf(GEN_END, krokiOpenIdx);
-      if (krokiCloseIdx !== -1 && krokiCloseIdx > codePos) {
-        // Migrate: code → expand(code) + kroki block after
-        body = body.slice(0, krokiOpenIdx)
-             + wrapInExpand(d.fullMatch) + '\n'
-             + newBlock
-             + body.slice(krokiCloseIdx + GEN_END.length);
-        changed = true;
-        continue;
-      }
-    }
-
-    const insertAt = codePos + d.fullMatch.length;
-
-    // ── Case 2: kroki marker follows code block (or its expand wrapper) ───────
-    // Look for kroki marker up to 600 chars after code block end
-    // (may be further if code is already inside an expand macro)
+    const insertAt      = codePos + d.fullMatch.length;
     const expandWrapper = findExpandWrapper(body, codePos, d.fullMatch.length);
     const searchFrom    = expandWrapper ? expandWrapper.end : insertAt;
-    const zone          = body.slice(searchFrom, searchFrom + 600);
-    const markerIdx     = zone.indexOf('<!-- kroki:');
-    if (markerIdx !== -1 && markerIdx < 500) {
-      const absStart = searchFrom + markerIdx;
-      if (body.slice(absStart, absStart + genStart.length) === genStart) {
-        continue; // same hash → already up to date
+
+    // ── Case 2: auto-image already follows the code/expand ───────────────────
+    const existingImg = findKrokiImage(body, searchFrom);
+    if (existingImg) {
+      if (existingImg.filename === d.filename) {
+        continue; // same hash → attachment and image ref already up to date
       }
-      // Different hash → replace kroki block only (code/expand stays as-is)
-      const endIdx = body.indexOf(GEN_END, absStart);
-      if (endIdx !== -1) {
-        body = body.slice(0, absStart) + newBlock.trimStart() + body.slice(endIdx + GEN_END.length);
-        changed = true;
-        continue;
-      }
+      // Different hash → replace image+link block only (expand/code unchanged)
+      body = body.slice(0, existingImg.start) + newBlock.trimStart() + body.slice(existingImg.end);
+      changed = true;
+      continue;
     }
 
-    // ── Case 3: first time → wrap code in expand + insert kroki block after ──
+    // ── Case 3: first time → wrap code in expand + insert image block ─────────
     body = body.slice(0, codePos)
          + wrapInExpand(d.fullMatch) + '\n'
          + newBlock
@@ -417,54 +420,33 @@ function patchOneDiagram(html, target, pageId, toolUrl) {
   };
   const newCodeWithExpand = wrapInExpand(replacement.fullMatch);
   const newBlock = buildKrokiBlock(replacement, pageId, toolUrl).trimStart();
-  const GEN_END = '<!-- /kroki -->';
 
   if (target.mode === 'add' || target.idx === null || target.idx === undefined || target.idx < 0) {
-    // Add: append expand(code) + image at end of page
     return { body: html + '\n' + newCodeWithExpand + '\n' + newBlock, changed: true, filename: replacement.filename };
   }
 
   const diagrams = extractDiagramBlocks(html);
-  const current = diagrams.find(d => d.idx === Number(target.idx));
+  const current  = diagrams.find(d => d.idx === Number(target.idx));
   if (!current) throw new Error(`Diagram index ${target.idx} not found on page`);
   const codePos = html.indexOf(current.fullMatch);
   if (codePos === -1) throw new Error('Diagram source block not found on page');
 
-  // Detect if code is already inside an expand wrapper
+  // Find expand wrapper (if code is already wrapped)
   const ew = findExpandWrapper(html, codePos, current.fullMatch.length);
   const sourceStart = ew ? ew.start : codePos;
   const sourceEnd   = ew ? ew.end   : codePos + current.fullMatch.length;
 
-  // Case 1: source (code ± expand) is inside an old kroki block → migrate
-  const beforeSource = html.slice(0, sourceStart);
-  const krokiOpenIdx = beforeSource.lastIndexOf('<!-- kroki:');
-  if (krokiOpenIdx !== -1) {
-    const krokiCloseIdx = html.indexOf(GEN_END, krokiOpenIdx);
-    if (krokiCloseIdx !== -1 && krokiCloseIdx > sourceStart) {
-      return {
-        body: html.slice(0, krokiOpenIdx) + newCodeWithExpand + '\n' + newBlock + html.slice(krokiCloseIdx + GEN_END.length),
-        changed: true,
-        filename: replacement.filename
-      };
-    }
+  // Case 2: existing auto-image follows the source → replace source + image as one unit
+  const existingImg = findKrokiImage(html, sourceEnd);
+  if (existingImg) {
+    return {
+      body: html.slice(0, sourceStart) + newCodeWithExpand + '\n' + newBlock + html.slice(existingImg.end),
+      changed: true,
+      filename: replacement.filename
+    };
   }
 
-  // Case 2: kroki marker follows source → replace source + kroki block
-  const zone = html.slice(sourceEnd, sourceEnd + 600);
-  const markerIdx = zone.indexOf('<!-- kroki:');
-  if (markerIdx !== -1 && markerIdx < 500) {
-    const absStart = sourceEnd + markerIdx;
-    const endIdx = html.indexOf(GEN_END, absStart);
-    if (endIdx !== -1) {
-      return {
-        body: html.slice(0, sourceStart) + newCodeWithExpand + '\n' + newBlock + html.slice(endIdx + GEN_END.length),
-        changed: true,
-        filename: replacement.filename
-      };
-    }
-  }
-
-  // Case 3: no kroki marker yet → replace source with expand(new code) + image
+  // Case 3: no image yet → replace source with expand(new code) + image
   return {
     body: html.slice(0, sourceStart) + newCodeWithExpand + '\n' + newBlock + html.slice(sourceEnd),
     changed: true,

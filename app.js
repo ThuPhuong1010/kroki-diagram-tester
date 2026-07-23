@@ -931,10 +931,40 @@ function currentPageId() {
   return extractPageId(cfPageId.value.trim()) || cfPageId.value.trim();
 }
 
+function diagramKindFromCode(d) {
+  const code = (d.code || '').trim();
+  const first = code.split(/\r?\n/).map(line => line.trim()).find(Boolean) || '';
+  const title = code.match(/^(?:title|caption)\s+(.+)$/im)?.[1]?.trim();
+  if (title) return title.replace(/["']/g, '').slice(0, 54);
+  if (d.type === 'mermaid') {
+    const kinds = {
+      sequencediagram: 'Sequence diagram', flowchart: 'Flowchart', graph: 'Flowchart',
+      classdiagram: 'Class diagram', erdiagram: 'Entity relationship diagram',
+      statediagram: 'State diagram', gantt: 'Gantt chart', mindmap: 'Mind map',
+      gitgraph: 'Git graph', journey: 'User journey', pie: 'Pie chart'
+    };
+    const key = (first.match(/^([\w-]+)/)?.[1] || '').toLowerCase();
+    return kinds[key] || 'Mermaid diagram';
+  }
+  if (d.type === 'plantuml') {
+    if (/usecase/i.test(code)) return 'Use case diagram';
+    if (/component/i.test(code)) return 'Component diagram';
+    if (/class\s+/i.test(code)) return 'Class diagram';
+    if (/actor\s+|participant\s+|->/i.test(code)) return 'Sequence diagram';
+    return 'PlantUML diagram';
+  }
+  const labels = { graphviz: 'Graph diagram', d2: 'Architecture diagram', bpmn: 'Process diagram', dbml: 'Database diagram', erd: 'Entity relationship diagram' };
+  return labels[d.type] || `${d.type || 'Diagram'} diagram`;
+}
+
 function shortNameFromDiagram(d, i) {
-  if (d.filename) return d.filename.replace(/^auto-[a-f0-9]+-/, '').replace(/\.(png|svg)$/i, '');
-  const first = (d.code || '').split('\n').find(Boolean) || `${d.type} diagram`;
-  return first.replace(/[@{}[\]()]/g, '').slice(0, 42) || `Diagram ${i + 1}`;
+  return diagramKindFromCode(d) || `${d.type || 'Diagram'} ${i + 1}`;
+}
+
+function diagramContextText(d) {
+  const parts = [d.contextBefore, d.contextAfter].filter(Boolean);
+  if (!parts.length) return 'No nearby page text was found.';
+  return parts.join(' · ').replace(/\s+/g, ' ').slice(0, 360);
 }
 
 function renderPageDiagramManager() {
@@ -950,9 +980,13 @@ function renderPageDiagramManager() {
 
   pdmList.innerHTML = state.pageDiagrams.map((d, i) => {
     const active = Number(state.selectedPageDiagramIdx) === Number(d.idx) && state.pageDiagramMode === 'update';
+    const rendered = d.hasKrokiBlock ? 'Rendered' : 'Source only';
     return `<button class="pdm-item${active ? ' active' : ''}" type="button" data-idx="${d.idx}">
-      <span class="pdm-item-type">${escHtml(d.type)}</span>
-      <span class="pdm-item-name">${escHtml(shortNameFromDiagram(d, i))}</span>
+      <span class="pdm-item-index">${String(i + 1).padStart(2, '0')}</span>
+      <span class="pdm-item-main">
+        <span class="pdm-item-name">${escHtml(shortNameFromDiagram(d, i))}</span>
+        <span class="pdm-item-meta"><b>${escHtml(d.type)}</b><em>${rendered}</em></span>
+      </span>
     </button>`;
   }).join('');
 
@@ -970,10 +1004,14 @@ function selectPageDiagram(idx) {
   diagramType.value = d.type;
   cfFileName.value = d.filename || d.generatedFilename || 'diagram.png';
   diagramName.value = shortNameFromDiagram(d, d.idx);
-  pdmContext.innerHTML = [
-    d.contextBefore ? `<div><strong>Before:</strong> ${escHtml(d.contextBefore)}</div>` : '',
-    d.contextAfter ? `<div><strong>After:</strong> ${escHtml(d.contextAfter)}</div>` : ''
-  ].filter(Boolean).join('') || '<span class="pdm-empty">No nearby page text found.</span>';
+  const position = state.pageDiagrams.findIndex(x => Number(x.idx) === Number(idx)) + 1;
+  pdmContext.innerHTML = `
+    <div class="pdm-context-head">
+      <strong>${escHtml(shortNameFromDiagram(d, position - 1))}</strong>
+      <span>Diagram ${position} of ${state.pageDiagrams.length} · ${escHtml(d.type)}</span>
+    </div>
+    <div class="pdm-context-page"><span>Page</span><strong>${escHtml(state.pageTitle || currentPageId() || 'Selected page')}</strong></div>
+    <div class="pdm-context-copy"><span>Nearby page text</span>${escHtml(diagramContextText(d))}</div>`;
   library.currentId = null;
   saveCreds();
   updateSyncBtn();
@@ -1111,8 +1149,12 @@ btnSync.addEventListener('click', async () => {
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || `Server ${res.status}`);
 
-      const modeLabel = state.pageDiagramMode === 'add' ? 'Added to page' : 'Updated';
-      setSyncStatus('success', `✅ ${modeLabel} — refresh Confluence page to see changes`);
+      const savedAt  = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const diagNums = state.pageDiagrams.length;
+      const diagLabel = state.pageDiagramMode === 'add'
+        ? 'New diagram added'
+        : `Diagram #${(Number(state.selectedPageDiagramIdx) + 1)} of ${diagNums || '?'} updated`;
+      setSyncStatus('success', `✅ ${diagLabel} at ${savedAt} — refresh Confluence to see changes`);
       confluenceUrl.value = data.url;
       btnCopyUrl.disabled = false;
       cfFileName.value = data.filename || fname;
@@ -1126,8 +1168,8 @@ btnSync.addEventListener('click', async () => {
 
       navigator.clipboard.writeText(data.url).catch(() => {});
       showToast(state.pageDiagramMode === 'add'
-        ? 'Added diagram — go refresh your Confluence page'
-        : 'Updated — go refresh your Confluence page (Ctrl+Shift+R)');
+        ? 'Diagram added — refresh Confluence page to see it'
+        : `Diagram #${(Number(state.selectedPageDiagramIdx) + 1)} saved — refresh Confluence (Ctrl+Shift+R)`);
       await loadPageDiagrams();
       return;
     }
