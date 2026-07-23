@@ -6,7 +6,7 @@ async function fetchAllSpaces(cfUrl, auth) {
   const all = [];
   let start = 0;
   for (let page = 0; page < 100; page++) {
-    const r = await fetch(`${cfUrl}/wiki/rest/api/space?start=${start}&limit=${limit}&type=global`, {
+    const r = await fetch(`${cfUrl}/wiki/rest/api/space?start=${start}&limit=${limit}`, {
       headers: { Authorization: auth, Accept: 'application/json' }
     });
     const data = await r.json();
