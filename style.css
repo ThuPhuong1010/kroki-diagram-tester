@@ -1589,3 +1589,48 @@ body { background: var(--bg-base); }
   .pdm-list, .pdm-context { height: 112px; }
   .pdm-context-head { align-items: flex-start; flex-direction: column; gap: 2px; }
 }
+/* ===== CONFLUENCE WORKSPACE DRAWER ===== */
+:root { --footer-h: 54px; }
+.output-bar { position: relative; height: var(--footer-h); min-height: var(--footer-h); overflow: visible; z-index: 300; }
+.sync-panel {
+  position: fixed;
+  z-index: 500;
+  left: 18px;
+  right: 18px;
+  bottom: 62px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "fields actions" "manager manager";
+  max-height: min(340px, calc(100vh - 130px));
+  overflow: auto;
+  padding: 14px 16px 12px;
+  background: rgba(17, 21, 28, 0.98);
+  border: 1px solid var(--border-bright);
+  border-radius: 8px;
+  box-shadow: 0 22px 70px rgba(0,0,0,.52);
+  opacity: 0;
+  transform: translateY(calc(100% + 22px));
+  pointer-events: none;
+  transition: opacity .2s ease, transform .24s ease;
+}
+.output-bar.confluence-open .sync-panel { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.output-secondary { height: var(--footer-h); min-height: var(--footer-h); padding: 8px 18px; }
+#btnConfluencePanel { border-color: rgba(116,167,255,.32); color: var(--accent); }
+#btnConfluencePanel:hover, #btnConfluencePanel.active { background: var(--accent-dim); border-color: var(--accent); color: var(--text-primary); }
+#btnConfluencePanel.active svg { transform: rotate(180deg); }
+#btnConfluencePanel svg { transition: transform .2s ease; }
+
+@media (max-width: 1100px) {
+  :root { --footer-h: 54px; }
+  .sync-panel { left: 12px; right: 12px; grid-template-columns: 1fr; grid-template-areas: "fields" "actions" "manager"; max-height: min(520px, calc(100vh - 100px)); }
+}
+@media (max-width: 700px) {
+  :root { --footer-h: 52px; }
+  .output-bar { height: var(--footer-h); min-height: var(--footer-h); }
+  .sync-panel { left: 8px; right: 8px; bottom: 58px; padding: 12px; max-height: calc(100vh - 82px); border-radius: 7px; }
+  .output-secondary { height: var(--footer-h); min-height: var(--footer-h); padding: 7px 10px; }
+  .output-secondary .url-display-wrapper { order: 0; flex: 1; min-width: 120px; }
+  .output-secondary .btn-outline, .output-secondary #btnHowTo, .output-secondary #btnCopyMd { display: none; }
+  #btnConfluencePanel { padding-inline: 9px; }
+  #btnConfluencePanel svg { display: none; }
+}
