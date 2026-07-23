@@ -504,6 +504,50 @@ backend.order -> data.pg`
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
 </definitions>`
+  },
+  'bpmn-json': {
+    type: 'bpmn',
+    code: `{
+  "pools": [
+    {
+      "id": "P_Customer",
+      "name": "Khách hàng",
+      "processId": "Proc_Customer",
+      "lanes": [
+        { "id": "L_Cust", "name": "Người mua", "nodeRefs": ["N_Start", "N_Submit"] }
+      ]
+    },
+    {
+      "id": "P_Company",
+      "name": "Công ty",
+      "processId": "Proc_Company",
+      "lanes": [
+        { "id": "L_Sales", "name": "Phòng Sale", "nodeRefs": ["N_CheckStock", "N_GatewayStock", "N_Invoice"] },
+        { "id": "L_Account", "name": "Kế toán", "nodeRefs": ["N_Payment", "N_End"] }
+      ]
+    }
+  ],
+  "nodes": [
+    { "id": "N_Start", "type": "start", "name": "Gửi yêu cầu mua hàng", "x": 250 },
+    { "id": "N_Submit", "type": "task", "name": "Nhập thông tin đơn hàng", "x": 420 },
+    { "id": "N_CheckStock", "type": "task", "name": "Kiểm tra kho hàng", "x": 420 },
+    { "id": "N_GatewayStock", "type": "gateway", "name": "Còn hàng?", "x": 620 },
+    { "id": "N_Invoice", "type": "task", "name": "Xuất hóa đơn & Giao hàng", "x": 780 },
+    { "id": "N_Payment", "type": "task", "name": "Thu tiền khách hàng", "x": 980 },
+    { "id": "N_End", "type": "end", "name": "Hoàn tất quy trình", "x": 1180 }
+  ],
+  "edges": [
+    { "from": "N_Start", "to": "N_Submit", "label": "" },
+    { "from": "N_CheckStock", "to": "N_GatewayStock", "label": "" },
+    { "from": "N_GatewayStock", "to": "N_Invoice", "label": "Còn hàng" },
+    { "from": "N_GatewayStock", "to": "N_Submit", "label": "Hết hàng (Sửa YC)" },
+    { "from": "N_Invoice", "to": "N_Payment", "label": "" },
+    { "from": "N_Payment", "to": "N_End", "label": "" }
+  ],
+  "messageFlows": [
+    { "from": "N_Submit", "to": "N_CheckStock", "label": "Thông tin đơn" }
+  ]
+}`
   }
 };
 
@@ -576,7 +620,8 @@ const state = {
   pageTitle: '',
   pageVersion: null,
   selectedPageDiagramIdx: null,
-  pageDiagramMode: null
+  pageDiagramMode: null,
+  bpmnViewer: null
 };
 
 // API available when NOT on GitHub Pages (works on localhost, Railway, any custom domain)
@@ -631,6 +676,140 @@ const pdmContext          = $('pdmContext');
 // Tracks pageName/spaceKey picked via the page picker (cleared on new browse)
 let pickedPageMeta = { pageName: '', spaceKey: '' };
 
+// ─── BPMN 2.0 JSON → XML Converter (Ported from bpmn_generator) ─────────────
+function getNodeSize(type) {
+  if (type === 'start' || type === 'end') return { w: 36, h: 36 };
+  if (type === 'gateway') return { w: 50, h: 50 };
+  return { w: 120, h: 80 };
+}
+
+function convertJsonToXmlWithDI(jsonString) {
+  try {
+    const cleanStr = jsonString.replace(/```json|```/g, '').trim();
+    if (!cleanStr) return null;
+    const data = JSON.parse(cleanStr);
+    const nodes = data.nodes || [];
+    const edges = data.edges || [];
+    const pools = data.pools || [];
+    const messageFlows = data.messageFlows || [];
+
+    if (!data.nodes && !data.pools && !data.edges) return null;
+
+    let participantsXml = '';
+    let processesXml = '';
+    let diPoolsLanes = '';
+    let diNodes = '';
+    let diEdges = '';
+
+    const POOL_X = 160;
+    const NODE_X_OFFSET = 120;
+    const maxNodeX = Math.max(...nodes.map(n => n.x || 0), 1000);
+    const POOL_WIDTH = maxNodeX + 400;
+    const LANE_HEIGHT = 200;
+    const POOL_GAP = 120;
+    let currentPoolY = 50;
+    let finalNodeCoords = {};
+
+    if (pools.length > 0) {
+      pools.forEach((p, pIdx) => {
+        const laneCount = p.lanes?.length || 1;
+        const poolHeight = laneCount * LANE_HEIGHT;
+        const procId = p.processId || `Proc_${pIdx}`;
+        participantsXml += `<bpmn:participant id="${p.id}" name="${p.name || ''}" processRef="${procId}" />`;
+        diPoolsLanes += `<bpmndi:BPMNShape id="${p.id}_di" bpmnElement="${p.id}" isHorizontal="true"><dc:Bounds x="${POOL_X}" y="${currentPoolY}" width="${POOL_WIDTH}" height="${poolHeight}" /></bpmndi:BPMNShape>`;
+        let lanesXml = '';
+        let nodeIdsInPool = new Set();
+        if (p.lanes && p.lanes.length > 0) {
+          lanesXml = `<bpmn:laneSet id="Set_${p.id}">`;
+          p.lanes.forEach((lane, lIdx) => {
+            const laneY = currentPoolY + (lIdx * LANE_HEIGHT);
+            lanesXml += `<bpmn:lane id="${lane.id}" name="${lane.name || ''}">`;
+            (lane.nodeRefs || []).forEach(ref => {
+              lanesXml += `<bpmn:flowNodeRef>${ref}</bpmn:flowNodeRef>`;
+              nodeIdsInPool.add(ref);
+              const n = nodes.find(node => node.id === ref);
+              if (n) {
+                const s = getNodeSize(n.type);
+                finalNodeCoords[n.id] = { x: Math.max(n.x || 300, POOL_X + NODE_X_OFFSET), y: laneY + (LANE_HEIGHT / 2) - (s.h / 2), w: s.w, h: s.h, laneBottom: laneY + LANE_HEIGHT };
+              }
+            });
+            lanesXml += `</bpmn:lane>`;
+            diPoolsLanes += `<bpmndi:BPMNShape id="${lane.id}_di" bpmnElement="${lane.id}" isHorizontal="true"><dc:Bounds x="${POOL_X + 30}" y="${laneY}" width="${POOL_WIDTH - 30}" height="${LANE_HEIGHT}" /></bpmndi:BPMNShape>`;
+          });
+          lanesXml += `</bpmn:laneSet>`;
+        } else {
+          nodes.filter(n => n.processId === p.processId).forEach(n => {
+            nodeIdsInPool.add(n.id);
+            const s = getNodeSize(n.type);
+            finalNodeCoords[n.id] = { x: Math.max(n.x || 300, POOL_X + NODE_X_OFFSET), y: currentPoolY + (poolHeight / 2) - (s.h / 2), w: s.w, h: s.h, laneBottom: currentPoolY + poolHeight };
+          });
+        }
+        const typeMap = { start: 'bpmn:startEvent', end: 'bpmn:endEvent', gateway: 'bpmn:exclusiveGateway', task: 'bpmn:userTask', subProcess: 'bpmn:subProcess' };
+        let xmlN = nodes.filter(n => nodeIdsInPool.has(n.id)).map(n => `<${typeMap[n.type] || 'bpmn:task'} id="${n.id}" name="${n.name || ''}" />`).join('');
+        let xmlF = edges.filter(e => nodeIdsInPool.has(e.from)).map(e => `<bpmn:sequenceFlow id="F_${e.from}_${e.to}" sourceRef="${e.from}" targetRef="${e.to}" name="${e.label || ''}" />`).join('');
+        processesXml += `<bpmn:process id="${procId}" isExecutable="true">${lanesXml}${xmlN}${xmlF}</bpmn:process>`;
+        currentPoolY += poolHeight + POOL_GAP;
+      });
+    } else {
+      // Fallback if no pools specified
+      const procId = 'Proc_1';
+      const typeMap = { start: 'bpmn:startEvent', end: 'bpmn:endEvent', gateway: 'bpmn:exclusiveGateway', task: 'bpmn:userTask', subProcess: 'bpmn:subProcess' };
+      nodes.forEach((n, idx) => {
+        const s = getNodeSize(n.type);
+        finalNodeCoords[n.id] = { x: n.x || (160 + idx * 180), y: n.y || 150, w: s.w, h: s.h, laneBottom: 300 };
+      });
+      let xmlN = nodes.map(n => `<${typeMap[n.type] || 'bpmn:task'} id="${n.id}" name="${n.name || ''}" />`).join('');
+      let xmlF = edges.map(e => `<bpmn:sequenceFlow id="F_${e.from}_${e.to}" sourceRef="${e.from}" targetRef="${e.to}" name="${e.label || ''}" />`).join('');
+      processesXml += `<bpmn:process id="${procId}" isExecutable="true">${xmlN}${xmlF}</bpmn:process>`;
+    }
+
+    Object.keys(finalNodeCoords).forEach(id => {
+      const c = finalNodeCoords[id];
+      diNodes += `<bpmndi:BPMNShape id="${id}_di" bpmnElement="${id}" isExpanded="false"><dc:Bounds x="${c.x}" y="${c.y}" width="${c.w}" height="${c.h}" /></bpmndi:BPMNShape>`;
+    });
+
+    edges.forEach((e) => {
+      const f = finalNodeCoords[e.from];
+      const t = finalNodeCoords[e.to];
+      if (!f || !t) return;
+      if (t.x < f.x) {
+        const byY = f.laneBottom - 20;
+        diEdges += `<bpmndi:BPMNEdge id="F_${e.from}_${e.to}_di" bpmnElement="F_${e.from}_${e.to}"><di:waypoint x="${f.x + f.w / 2}" y="${f.y + f.h}" /><di:waypoint x="${f.x + f.w / 2}" y="${byY}" /><di:waypoint x="${t.x + t.w / 2}" y="${byY}" /><di:waypoint x="${t.x + t.w / 2}" y="${t.y + t.h}" /></bpmndi:BPMNEdge>`;
+      } else if (f.x === t.x) {
+        diEdges += `<bpmndi:BPMNEdge id="F_${e.from}_${e.to}_di" bpmnElement="F_${e.from}_${e.to}"><di:waypoint x="${f.x + f.w / 2}" y="${f.y + f.h}" /><di:waypoint x="${f.x + f.w / 2}" y="${t.y}" /></bpmndi:BPMNEdge>`;
+      } else {
+        const sX = f.x + f.w; const sY = f.y + f.h / 2; const eX = t.x; const eY = t.y + t.h / 2; const mX = sX + (eX - sX) / 2;
+        diEdges += `<bpmndi:BPMNEdge id="F_${e.from}_${e.to}_di" bpmnElement="F_${e.from}_${e.to}"><di:waypoint x="${sX}" y="${sY}" /><di:waypoint x="${mX}" y="${sY}" /><di:waypoint x="${mX}" y="${eY}" /><di:waypoint x="${eX}" y="${eY}" /></bpmndi:BPMNEdge>`;
+      }
+    });
+
+    messageFlows.forEach((m, idx) => {
+      const f = finalNodeCoords[m.from]; const t = finalNodeCoords[m.to];
+      if (f && t) {
+        participantsXml += `<bpmn:messageFlow id="Msg_${idx}" sourceRef="${m.from}" targetRef="${m.to}" name="${m.label || ''}" />`;
+        diEdges += `<bpmndi:BPMNEdge id="Msg_${idx}_di" bpmnElement="Msg_${idx}"><di:waypoint x="${f.x + f.w / 2}" y="${f.y + f.h}" /><di:waypoint x="${t.x + t.w / 2}" y="${t.y + t.h}" /></bpmndi:BPMNEdge>`;
+      }
+    });
+
+    const collabXml = participantsXml ? `<bpmn:collaboration id="C_M">${participantsXml}</bpmn:collaboration>` : '';
+    const mainRef = participantsXml ? 'C_M' : 'Proc_1';
+
+    return `<?xml version="1.0" encoding="UTF-8"?><bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" targetNamespace="http://bpmn.io/schema/bpmn">${collabXml}${processesXml}<bpmndi:BPMNDiagram id="D_1"><bpmndi:BPMNPlane id="P_1" bpmnElement="${mainRef}">${diPoolsLanes}${diNodes}${diEdges}</bpmndi:BPMNPlane></bpmndi:BPMNDiagram></bpmn:definitions>`;
+  } catch (e) {
+    return null;
+  }
+}
+
+function getEffectiveBpmnXml(code) {
+  const trimmed = (code || '').trim();
+  if (!trimmed) return trimmed;
+  if (trimmed.startsWith('{') || trimmed.startsWith('[') || (trimmed.includes('"nodes"') && trimmed.includes('"edges"'))) {
+    const xml = convertJsonToXmlWithDI(trimmed);
+    if (xml) return xml;
+  }
+  return trimmed;
+}
+
 // ─── Encoding & URL Building ─────────────────────────────────────────────────
 /**
  * HYBRID ROUTING:
@@ -664,6 +843,9 @@ function encodeKroki(text) {
 const MERMAID_TYPES = new Set(['mermaid']);
 
 function buildDiagramUrl(code, type, format) {
+  if (type === 'bpmn') {
+    code = getEffectiveBpmnXml(code);
+  }
   if (MERMAID_TYPES.has(type)) {
     // mermaid.ink supports svg and img (png)
     const endpoint = format === 'png' ? 'img' : 'svg';
@@ -694,6 +876,10 @@ function setStatus(type, text) {
 async function renderDiagram() {
   const code = editor.value.trim();
   if (!code) {
+    if (state.bpmnViewer) {
+      try { state.bpmnViewer.destroy(); } catch (e) {}
+      state.bpmnViewer = null;
+    }
     showState('placeholder');
     setStatus('', 'Ready');
     confluenceUrl.value = '';
@@ -705,7 +891,63 @@ async function renderDiagram() {
 
   const type   = diagramType.value;
   const format = outputFormat.value;
-  const url    = buildDiagramUrl(code, type, format);
+
+  // BPMN 2.0 Canvas Rendering via bpmn-js (bpmn_generator)
+  if (type === 'bpmn' && (window.BpmnJS || window.BpmnJSViewer)) {
+    const effectiveXml = getEffectiveBpmnXml(code);
+    if (effectiveXml) {
+      const url = buildDiagramUrl(effectiveXml, type, format);
+
+      showState('loading');
+      setStatus('loading', 'Rendering BPMN Canvas...');
+      state.isRendering = true;
+
+      try {
+        if (state.bpmnViewer) {
+          try { state.bpmnViewer.destroy(); } catch (e) {}
+          state.bpmnViewer = null;
+        }
+
+        previewContent.innerHTML = '';
+        const container = document.createElement('div');
+        container.className = 'bpmn-container';
+        container.id = 'bpmnCanvas';
+        previewContent.appendChild(container);
+
+        const BpmnClass = window.BpmnJS || window.BpmnJSViewer;
+        state.bpmnViewer = new BpmnClass({
+          container: container
+        });
+
+        await state.bpmnViewer.importXML(effectiveXml);
+        try { state.bpmnViewer.get('canvas').zoom('fit-viewport'); } catch (e) {}
+
+        previewContent.classList.add('animate');
+        setTimeout(() => previewContent.classList.remove('animate'), 400);
+
+        showState('content');
+        setStatus('success', 'Rendered (BPMN Canvas) ✓');
+
+        state.currentUrl = url;
+        confluenceUrl.value = url;
+        btnCopyUrl.disabled = false;
+        btnDownloadConfluence.disabled = false;
+        state.isRendering = false;
+        updateSyncBtn();
+        return;
+      } catch (err) {
+        console.warn('BPMN Canvas render failed, falling back to Kroki image:', err);
+      }
+    }
+  }
+
+  // Fallback for non-BPMN or if BPMN canvas fails
+  if (state.bpmnViewer) {
+    try { state.bpmnViewer.destroy(); } catch (e) {}
+    state.bpmnViewer = null;
+  }
+
+  const url = buildDiagramUrl(code, type, format);
 
   showState('loading');
   setStatus('loading', 'Rendering...');

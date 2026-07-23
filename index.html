@@ -12,6 +12,11 @@
   <!-- pako (zlib/deflate for Kroki encoding — same lib Kroki uses) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
 
+  <!-- bpmn-js (BPMN 2.0 interactive canvas) -->
+  <link rel="stylesheet" href="https://unpkg.com/bpmn-js@17.11.1/dist/assets/diagram-js.css" />
+  <link rel="stylesheet" href="https://unpkg.com/bpmn-js@17.11.1/dist/assets/bpmn-font/css/bpmn.css" />
+  <script src="https://unpkg.com/bpmn-js@17.11.1/dist/bpmn-navigated-viewer.production.min.js"></script>
+
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -94,7 +99,8 @@
             <option value="plantuml-usecase">PlantUML: Use Case</option>
             <option value="plantuml-component">PlantUML: Component</option>
             <option value="plantuml-deployment">PlantUML: Deployment</option>
-            <option value="bpmn-swimlane">BPMN 2.0: Swim Lanes</option>
+            <option value="bpmn-swimlane">BPMN 2.0: Swim Lanes (XML)</option>
+            <option value="bpmn-json">BPMN 2.0: AI JSON Schema</option>
             <option value="graphviz-simple">GraphViz: Graph</option>
             <option value="d2-simple">D2: Architecture</option>
           </select>
