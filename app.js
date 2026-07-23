@@ -133,6 +133,64 @@ const TEMPLATES = {
     Completed --> [*]
     Cancelled --> [*]`
   },
+  'plantuml-swimlane': {
+    type: 'plantuml',
+    code: `@startuml
+skinparam swimlaneWidth 220
+skinparam backgroundColor #0d0f14
+skinparam swimlaneBorderColor #3d4258
+skinparam activityBackgroundColor #1a1e2a
+skinparam activityBorderColor #6c8ef5
+skinparam activityFontColor #e8eaf0
+skinparam arrowColor #6c8ef5
+skinparam noteBackgroundColor #21263a
+skinparam noteBorderColor #a78bfa
+
+title Leave Request Approval
+
+|👤 Employee|
+start
+:Submit Leave Request;
+note right
+  Start date, end date,
+  leave type, reason
+end note
+
+|🖥️ HR System|
+:Auto-validate dates;
+if (Dates valid &\nno overlap?) then (yes)
+
+  |👔 Line Manager|
+  :Review Request;
+  if (Approved?) then (yes)
+
+    |🖥️ HR System|
+    :Deduct leave balance;
+    :Send calendar invite;
+
+    |👤 Employee|
+    :Receive approval email;
+    stop
+
+  else (no)
+    |👔 Line Manager|
+    :Enter rejection reason;
+
+    |👤 Employee|
+    :Receive rejection email;
+    stop
+  endif
+
+else (no)
+  |🖥️ HR System|
+  :Notify invalid dates;
+
+  |👤 Employee|
+  :Fix dates & resubmit;
+  stop
+endif
+@enduml`
+  },
   'plantuml-sequence': {
     type: 'plantuml',
     code: `@startuml
@@ -340,6 +398,112 @@ backend.api -> backend.auth
 backend.api -> backend.order
 backend.auth -> data.redis
 backend.order -> data.pg`
+  },
+  'bpmn-swimlane': {
+    type: 'bpmn',
+    code: `<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+  targetNamespace="http://example.com/bpmn">
+
+  <collaboration id="collab">
+    <participant id="pool" name="Order Approval Process" processRef="proc"/>
+  </collaboration>
+
+  <process id="proc" isExecutable="false">
+    <laneSet id="ls">
+      <lane id="l_cust" name="Customer">
+        <flowNodeRef>start</flowNodeRef>
+        <flowNodeRef>t_submit</flowNodeRef>
+        <flowNodeRef>t_receive</flowNodeRef>
+        <flowNodeRef>end_ok</flowNodeRef>
+        <flowNodeRef>end_rej</flowNodeRef>
+      </lane>
+      <lane id="l_staff" name="Approver">
+        <flowNodeRef>t_review</flowNodeRef>
+        <flowNodeRef>gw</flowNodeRef>
+        <flowNodeRef>t_reject</flowNodeRef>
+      </lane>
+    </laneSet>
+
+    <startEvent id="start" name="Order Placed"/>
+    <sequenceFlow id="f1" sourceRef="start" targetRef="t_submit"/>
+    <userTask id="t_submit" name="Fill Order Form"/>
+    <sequenceFlow id="f2" sourceRef="t_submit" targetRef="t_review"/>
+    <userTask id="t_review" name="Review Order"/>
+    <sequenceFlow id="f3" sourceRef="t_review" targetRef="gw"/>
+    <exclusiveGateway id="gw" name="Decision"/>
+    <sequenceFlow id="f4" name="Approve" sourceRef="gw" targetRef="t_receive"/>
+    <sequenceFlow id="f5" name="Reject"  sourceRef="gw" targetRef="t_reject"/>
+    <userTask id="t_receive" name="Receive Confirmation"/>
+    <sequenceFlow id="f6" sourceRef="t_receive" targetRef="end_ok"/>
+    <endEvent id="end_ok" name="Order Confirmed"/>
+    <serviceTask id="t_reject" name="Send Rejection Notice"/>
+    <sequenceFlow id="f7" sourceRef="t_reject" targetRef="end_rej"/>
+    <endEvent id="end_rej" name="Order Rejected"/>
+  </process>
+
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane bpmnElement="collab">
+      <bpmndi:BPMNShape id="d_pool" bpmnElement="pool" isHorizontal="true">
+        <dc:Bounds x="10" y="10" width="810" height="330"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="d_l_cust" bpmnElement="l_cust" isHorizontal="true">
+        <dc:Bounds x="40" y="10" width="780" height="165"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="d_l_staff" bpmnElement="l_staff" isHorizontal="true">
+        <dc:Bounds x="40" y="175" width="780" height="165"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="d_start" bpmnElement="start">
+        <dc:Bounds x="80" y="74" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="d_t_submit" bpmnElement="t_submit">
+        <dc:Bounds x="160" y="54" width="120" height="76"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="d_t_receive" bpmnElement="t_receive">
+        <dc:Bounds x="600" y="54" width="120" height="76"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="d_end_ok" bpmnElement="end_ok">
+        <dc:Bounds x="760" y="74" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="d_end_rej" bpmnElement="end_rej">
+        <dc:Bounds x="760" y="239" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="d_t_review" bpmnElement="t_review">
+        <dc:Bounds x="330" y="219" width="120" height="76"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="d_gw" bpmnElement="gw" isMarkerVisible="true">
+        <dc:Bounds x="500" y="232" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="d_t_reject" bpmnElement="t_reject">
+        <dc:Bounds x="600" y="219" width="120" height="76"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="e_f1" bpmnElement="f1">
+        <di:waypoint x="116" y="92"/><di:waypoint x="160" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="e_f2" bpmnElement="f2">
+        <di:waypoint x="220" y="130"/><di:waypoint x="220" y="257"/><di:waypoint x="330" y="257"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="e_f3" bpmnElement="f3">
+        <di:waypoint x="450" y="257"/><di:waypoint x="500" y="257"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="e_f4" bpmnElement="f4">
+        <di:waypoint x="525" y="232"/><di:waypoint x="525" y="92"/><di:waypoint x="600" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="e_f5" bpmnElement="f5">
+        <di:waypoint x="550" y="257"/><di:waypoint x="600" y="257"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="e_f6" bpmnElement="f6">
+        <di:waypoint x="720" y="92"/><di:waypoint x="760" y="92"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="e_f7" bpmnElement="f7">
+        <di:waypoint x="720" y="257"/><di:waypoint x="760" y="257"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</definitions>`
   }
 };
 
@@ -448,8 +612,11 @@ const libBackdrop    = $('libBackdrop');
 const libList        = $('libList');
 const libSearch      = $('libSearch');
 const libCount       = $('libCount');
-const btnSaveDiagram = $('btnSaveDiagram');
-const btnOpenPage    = $('btnOpenPage');
+const btnSaveDiagram    = $('btnSaveDiagram');
+const btnOpenPage       = $('btnOpenPage');
+const cfPageIdHint      = $('cfPageIdHint');
+const syncModifiedBadge = $('syncModifiedBadge');
+const editorStats       = $('editorStats');
 
 // Tracks pageName/spaceKey picked via the page picker (cleared on new browse)
 let pickedPageMeta = { pageName: '', spaceKey: '' };
@@ -465,10 +632,11 @@ let pickedPageMeta = { pageName: '', spaceKey: '' };
  * mermaid.ink is purpose-built for Mermaid and is much more reliable.
  */
 
-// Mermaid encoding: plain Base64 (UTF-8 safe) — mermaid.ink format
+// Mermaid encoding: base64url (UTF-8 safe) — mermaid.ink format.
+// Standard btoa() produces + and / which are NOT URL-safe; mermaid.ink requires base64url.
 function encodeMermaid(text) {
-  // unescape+encodeURIComponent handles full UTF-8 before btoa
-  return btoa(unescape(encodeURIComponent(text)));
+  return btoa(unescape(encodeURIComponent(text)))
+    .replace(/\+/g, '-').replace(/\//g, '_');
 }
 
 // Kroki encoding: pako zlib deflate → base64url — used by PlantUML, GraphViz, D2, etc.
@@ -699,9 +867,28 @@ document.addEventListener('mouseup', () => {
 });
 
 // ─── Editor Events ────────────────────────────────────────────────────────────
-editor.addEventListener('input', () => { scheduleRender(); autoSaveToLibrary(); });
+editor.addEventListener('input', () => { scheduleRender(); autoSaveToLibrary(); updateEditorStats(); });
+
+// ─── Editor Stats (line / char count) ─────────────────────────────────────────
+function updateEditorStats() {
+  if (!editorStats) return;
+  const code  = editor.value;
+  const lines = code ? code.split('\n').length : 0;
+  const chars = code.length;
+  editorStats.textContent = lines > 0 ? `${lines}L · ${chars}C` : '';
+}
+
+// ─── Ctrl+Scroll Zoom (on preview panel) ──────────────────────────────────────
+document.getElementById('previewWrapper')?.addEventListener('wheel', e => {
+  if (!e.ctrlKey && !e.metaKey) return;
+  e.preventDefault();
+  const delta = e.deltaY > 0 ? -0.1 : 0.1;
+  state.zoom = Math.min(Math.max(state.zoom + delta, 0.25), 3);
+  applyZoom();
+}, { passive: false });
 
 // Tab key → insert spaces
+// Ctrl+Enter → immediate render
 editor.addEventListener('keydown', e => {
   if (e.key === 'Tab') {
     e.preventDefault();
@@ -709,6 +896,11 @@ editor.addEventListener('keydown', e => {
     const end   = editor.selectionEnd;
     editor.value = editor.value.substring(0, start) + '  ' + editor.value.substring(end);
     editor.selectionStart = editor.selectionEnd = start + 2;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault();
+    clearTimeout(state.renderTimer);
+    renderDiagram();
   }
 });
 
@@ -771,8 +963,9 @@ btnSync.addEventListener('click', async () => {
   if (pageId !== cfPageId.value.trim()) { cfPageId.value = pageId; cfPageIdHint.textContent = ''; }
   const fname  = cfFileName.value.trim() || 'diagram.png';
 
-  setSyncStatus('loading', '⏳ Uploading...');
   btnSync.disabled = true;
+  btnSync.classList.add('btn--loading');
+  btnSync.textContent = 'Syncing…';
 
   try {
     // 1. Render diagram as PNG blob via kroki.io
@@ -829,6 +1022,7 @@ btnSync.addEventListener('click', async () => {
       });
     }
     updateLibCount();
+    updateModifiedBadge();
 
     // Auto-copy Confluence URL + show inline (no modal popup)
     navigator.clipboard.writeText(data.url).catch(() => {});
@@ -844,6 +1038,8 @@ btnSync.addEventListener('click', async () => {
     setSyncStatus('error', '❌ ' + msg.substring(0, 100));
     console.error('Confluence sync error:', err);
   } finally {
+    btnSync.classList.remove('btn--loading');
+    btnSync.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Sync to Confluence`;
     updateSyncBtn();
   }
 });
@@ -851,6 +1047,14 @@ btnSync.addEventListener('click', async () => {
 function setSyncStatus(type, msg) {
   syncStatus.textContent = msg;
   syncStatus.className = 'sync-status' + (type ? ' ' + type : '');
+}
+
+// ─── Modified Badge ───────────────────────────────────────────────────────────
+function updateModifiedBadge() {
+  if (!syncModifiedBadge) return;
+  const cur = library.current;
+  const show = !!(cur?.lastSynced && cur?.modifiedSinceSync);
+  syncModifiedBadge.classList.toggle('visible', show);
 }
 
 // ─── Process Page ─────────────────────────────────────────────────────────────
@@ -923,6 +1127,15 @@ function showSyncResult({url, pageName, pageId, filename}) {
 const modalOverlay = $('modalOverlay');
 const btnHowTo     = $('btnHowTo');
 const modalClose   = $('modalClose');
+
+// ─── ESC closes any open modal ────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  [modalOverlay, pagePickerOverlay, $('syncResultOverlay')].forEach(el => {
+    if (el?.classList.contains('open')) el.classList.remove('open');
+  });
+  if (libDrawer?.classList.contains('open')) closeLibrary();
+});
 
 btnHowTo.addEventListener('click', () => modalOverlay.classList.add('open'));
 modalClose.addEventListener('click', () => modalOverlay.classList.remove('open'));
@@ -1140,6 +1353,7 @@ async function onLibAction(action, id, vNum) {
     if (d.pageName) pickedPageMeta = { pageName: d.pageName, spaceKey: d.spaceKey || '' };
     library.currentId = id;
     saveCreds(); updateSyncBtn(); renderLibrary(); closeLibrary(); scheduleRender();
+    updateEditorStats(); updateModifiedBadge();
 
   } else if (action === 'getlink') {
     if (!d.confluenceUrl) return;
@@ -1193,6 +1407,7 @@ function autoSaveToLibrary() {
     if (!library.currentId) return;
     library.updateCurrent({ code: editor.value, type: diagramType.value });
     updateLibCount();
+    updateModifiedBadge();
   }, 2000);
 }
 
@@ -1274,7 +1489,6 @@ function extractPageId(text) {
 }
 
 // ─── Page ID field: accept URL → extract ID, show hint ────────────────────────
-const cfPageIdHint = $('cfPageIdHint');
 
 function tryExtractPageId(raw) {
   const id = extractPageId(raw);
@@ -1379,6 +1593,8 @@ cfPageId.addEventListener('input', () => {
 
   updateLibCount();
   updateSyncBtn();
+  updateEditorStats();
+  updateModifiedBadge();
   editor.focus();
   setTimeout(renderDiagram, 300);
 })();

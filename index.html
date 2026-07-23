@@ -90,9 +90,11 @@
             <option value="mermaid-gantt">Mermaid: Gantt</option>
             <option value="mermaid-state">Mermaid: State</option>
             <option value="plantuml-sequence">PlantUML: Sequence</option>
+            <option value="plantuml-swimlane">PlantUML: Swimlane (Cross-functional)</option>
             <option value="plantuml-usecase">PlantUML: Use Case</option>
             <option value="plantuml-component">PlantUML: Component</option>
             <option value="plantuml-deployment">PlantUML: Deployment</option>
+            <option value="bpmn-swimlane">BPMN 2.0: Swim Lanes</option>
             <option value="graphviz-simple">GraphViz: Graph</option>
             <option value="d2-simple">D2: Architecture</option>
           </select>
@@ -126,7 +128,13 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
           Code Editor
         </span>
-        <span class="panel-hint">Auto-renders after 600ms</span>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="editor-stats" id="editorStats"></span>
+          <span class="render-hint">
+            <kbd>Ctrl</kbd><kbd>Enter</kbd> to render
+          </span>
+          <span class="panel-hint">Auto · 600ms</span>
+        </div>
       </div>
       <div class="editor-wrapper">
         <textarea id="codeEditor" spellcheck="false" autocomplete="off"></textarea>
@@ -210,20 +218,21 @@
         </div>
       </div>
       <div class="sync-actions">
-        <button class="btn btn-ghost btn-sm" id="btnSaveDiagram" title="Save diagram to local library">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-          Save
-        </button>
-        <button class="btn btn-confluence" id="btnSync" disabled>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-          Sync to Confluence
-        </button>
-        <button class="btn btn-process" id="btnProcessPage" disabled title="Scan page for diagram code blocks → render → embed automatically">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/><line x1="9" y1="14" x2="15" y2="14"/><line x1="9" y1="18" x2="12" y2="18"/></svg>
-          Process Page
-        </button>
-        <span class="sync-status" id="syncStatus"></span>
-      </div>
+          <span class="sync-modified-badge" id="syncModifiedBadge">⚠ Modified</span>
+          <button class="btn btn-ghost btn-sm" id="btnSaveDiagram" title="Save diagram to local library">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            Save
+          </button>
+          <button class="btn btn-confluence" id="btnSync" disabled>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Sync to Confluence
+          </button>
+          <button class="btn btn-process" id="btnProcessPage" disabled title="Scan page for diagram code blocks → render → embed automatically">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/><line x1="9" y1="14" x2="15" y2="14"/><line x1="9" y1="18" x2="12" y2="18"/></svg>
+            Process Page
+          </button>
+          <span class="sync-status" id="syncStatus"></span>
+        </div>
     </div>
 
     <!-- SECONDARY: Download + URL -->
