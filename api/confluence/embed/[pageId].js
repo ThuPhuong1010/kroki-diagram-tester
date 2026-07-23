@@ -1,12 +1,19 @@
 'use strict';
+const zlib = require('zlib');
 const { getCredentials, authHeader } = require('../../_confluence');
+
+function encodeCodeParam(code) {
+  return zlib.deflateRawSync(Buffer.from(code, 'utf8'))
+    .toString('base64').replace(/\+/g, '-').replace(/\//g, '_');
+}
 
 // Add or update a <!-- kroki:filename --> block in the page body.
 // If the marker already exists → replace. If not → append at end.
-function embedInPage(html, filename, type, pageId, toolUrl) {
+function embedInPage(html, filename, type, code, pageId, toolUrl) {
   const GEN_START = `<!-- kroki:${filename} -->`;
   const GEN_END   = '<!-- /kroki -->';
-  const editHref  = `${toolUrl}?type=${type}&amp;page=${pageId}`;
+  const codeParam = code ? `&amp;code=${encodeCodeParam(code)}` : '';
+  const editHref  = `${toolUrl}?type=${type}&amp;page=${pageId}${codeParam}`;
   const newBlock  =
     `${GEN_START}` +
     `\n<ac:image ac:align="center"><ri:attachment ri:filename="${filename}"/></ac:image>` +
@@ -30,7 +37,7 @@ module.exports = async (req, res) => {
   if (req.method !== 'POST') return res.status(405).end();
 
   const pageId = req.query.pageId;
-  const { filename, data, type = 'mermaid' } = req.body || {};
+  const { filename, data, type = 'mermaid', code = '' } = req.body || {};
 
   if (!pageId)   return res.status(400).json({ error: 'Missing pageId' });
   if (!filename) return res.status(400).json({ error: 'Missing filename' });
@@ -92,12 +99,14 @@ module.exports = async (req, res) => {
     const toolUrl = (() => {
       if (process.env.TOOL_URL) return process.env.TOOL_URL.replace(/\/$/, '');
       // Sanitize forwarded headers to prevent injection into Confluence page body
-      const proto = /^https?$/.test(req.headers['x-forwarded-proto']) ? req.headers['x-forwarded-proto'] : 'https';
       const host  = (req.headers['x-forwarded-host'] || req.headers.host || 'mvldiagram.vercel.app')
-        .replace(/[^a-zA-Z0-9.:\-]/g, '');  // strip any unexpected chars
+        .replace(/[^a-zA-Z0-9.:\-]/g, '');
+      const proto = /^https?$/.test(req.headers['x-forwarded-proto'])
+        ? req.headers['x-forwarded-proto']
+        : host.startsWith('localhost') ? 'http' : 'https';
       return `${proto}://${host}`;
     })();
-    const newBody = embedInPage(page.body.storage.value, filename, type, pageId, toolUrl);
+    const newBody = embedInPage(page.body.storage.value, filename, type, code, pageId, toolUrl);
 
     const putR = await fetch(`${cfUrl}/wiki/rest/api/content/${pageId}`, {
       method: 'PUT',

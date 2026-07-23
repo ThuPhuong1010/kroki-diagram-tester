@@ -419,12 +419,12 @@ backend.order -> data.pg`
         <flowNodeRef>t_submit</flowNodeRef>
         <flowNodeRef>t_receive</flowNodeRef>
         <flowNodeRef>end_ok</flowNodeRef>
-        <flowNodeRef>end_rej</flowNodeRef>
       </lane>
       <lane id="l_staff" name="Approver">
         <flowNodeRef>t_review</flowNodeRef>
         <flowNodeRef>gw</flowNodeRef>
         <flowNodeRef>t_reject</flowNodeRef>
+        <flowNodeRef>end_rej</flowNodeRef>
       </lane>
     </laneSet>
 
@@ -988,7 +988,7 @@ btnSync.addEventListener('click', async () => {
     const res  = await fetch(`/api/confluence/embed/${pageId}`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ filename: fname, data: base64, type: diagramType.value }),
+      body:    JSON.stringify({ filename: fname, data: base64, type: diagramType.value, code: editor.value.trim() }),
     });
     const data = await res.json();
     if (!res.ok || !data.ok) throw new Error(data.error || `Server ${res.status}`);
@@ -1545,21 +1545,32 @@ cfPageId.addEventListener('input', () => {
     updateSyncBtn();
     updateProcessBtn();
 
-    // Auto-load diagram code from Confluence when opened via "Edit in Kroki" link
-    // (only if no ?template= was given, meaning the user expects to see the Confluence diagram)
+    // Auto-load diagram code from "Edit in Kroki" link.
+    // Priority: ?code= param (embedded, self-contained) > Confluence API fetch > nothing.
+    const paramCode = p.get('code');
+    if (paramCode && typeof pako !== 'undefined') {
+      try {
+        const bin   = atob(paramCode.replace(/-/g, '+').replace(/_/g, '/'));
+        const bytes = new Uint8Array([...bin].map(c => c.charCodeAt(0)));
+        editor.value = pako.inflateRaw(bytes, { to: 'string' });
+      } catch (_) { /* decode failed — leave editor as-is */ }
+      scheduleRender();
+      return;
+    }
     if (paramPage && HAS_API && !paramTemplate) {
+      // Fallback: fetch from Confluence API (requires server credentials)
       fetch(`/api/confluence/process/${paramPage}`)
         .then(r => r.json())
         .then(data => {
-          if (!data.diagrams?.length) return;
+          if (!data.diagrams?.length) { scheduleRender(); return; }
           const d = data.diagrams[0];
           editor.value      = d.code;
           diagramType.value = d.type;
           cfFileName.value  = d.filename;
           saveCreds(); updateSyncBtn(); scheduleRender();
         })
-        .catch(() => scheduleRender()); // fail silently — just render whatever is in editor
-      return; // don't scheduleRender yet — will be called after fetch resolves
+        .catch(() => scheduleRender());
+      return; // scheduleRender will be called by the fetch chain above
     }
 
     scheduleRender();

@@ -1,6 +1,13 @@
 'use strict';
 const crypto = require('crypto');
+const zlib   = require('zlib');
 const { getCredentials, authHeader } = require('../../_confluence');
+
+// Encode code for "Edit in Kroki" URL param — deflateRaw + base64url (same scheme as pako on client)
+function encodeCodeParam(code) {
+  return zlib.deflateRawSync(Buffer.from(code, 'utf8'))
+    .toString('base64').replace(/\+/g, '-').replace(/\//g, '_');
+}
 
 // Diagram types supported in Confluence code blocks
 const DIAGRAM_TYPES = new Set([
@@ -202,7 +209,7 @@ function patchPageBody(html, diagrams, pageId, toolUrl) {
     const insertAt = codePos + d.fullMatch.length;
 
     const genStart  = `<!-- kroki:${d.filename} -->`;
-    const editHref  = `${toolUrl}?type=${d.type}&amp;page=${pageId}`;
+    const editHref  = `${toolUrl}?type=${d.type}&amp;page=${pageId}&amp;code=${encodeCodeParam(d.code)}`;
     const newBlock  =
       `\n${genStart}` +
       `\n<ac:image ac:align="center"><ri:attachment ri:filename="${d.filename}"/></ac:image>` +
@@ -305,9 +312,11 @@ module.exports = async (req, res) => {
     const toolUrl  = (() => {
       if (process.env.TOOL_URL) return process.env.TOOL_URL.replace(/\/$/, '');
       // Sanitize forwarded headers to prevent injection into Confluence page body
-      const proto = /^https?$/.test(req.headers['x-forwarded-proto']) ? req.headers['x-forwarded-proto'] : 'https';
-      const host  = (req.headers['x-forwarded-host'] || req.headers.host || 'mvldiagram.vercel.app')
+      const host = (req.headers['x-forwarded-host'] || req.headers.host || 'mvldiagram.vercel.app')
         .replace(/[^a-zA-Z0-9.:\-]/g, '');
+      const proto = /^https?$/.test(req.headers['x-forwarded-proto'])
+        ? req.headers['x-forwarded-proto']
+        : host.startsWith('localhost') ? 'http' : 'https';
       return `${proto}://${host}`;
     })();
     const uploaded = diagrams.filter(d => !errors.find(e => e.idx === d.idx));
